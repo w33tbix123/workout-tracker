@@ -1,38 +1,49 @@
 import { db } from "./db";
 
 export async function seedWorkoutData() {
+  const seedStatus = await db.appMeta.get("initialSeedComplete");
+
+  if (seedStatus) {
+    return;
+  }
+
   const existingSplits = await db.splits.count();
 
   if (existingSplits > 0) {
+    await db.appMeta.put({
+      key: "initialSeedComplete",
+      value: true,
+    });
+
     return;
   }
 
   const splitId = await db.splits.add({
-    name: "4 Day Upper/Lower Split"
+    name: "4 Day Upper/Lower Split",
   });
 
   const upperAId = await db.workoutDays.add({
     splitId,
     name: "Upper A",
-    dayOfWeek: "Monday"
+    dayOfWeek: "Monday",
   });
 
   const lowerAId = await db.workoutDays.add({
     splitId,
     name: "Lower A",
-    dayOfWeek: "Tuesday"
+    dayOfWeek: "Tuesday",
   });
 
   const upperBId = await db.workoutDays.add({
     splitId,
     name: "Upper B",
-    dayOfWeek: "Thursday"
+    dayOfWeek: "Thursday",
   });
 
   const lowerBId = await db.workoutDays.add({
     splitId,
     name: "Lower B",
-    dayOfWeek: "Friday"
+    dayOfWeek: "Friday",
   });
 
   await db.exercises.bulkAdd([
@@ -46,7 +57,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure / 0-1"
+      targetRIR: "Failure / 0-1",
     },
     {
       workoutDayId: upperAId,
@@ -57,7 +68,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -68,7 +79,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperAId,
@@ -79,7 +90,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperAId,
@@ -90,7 +101,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperAId,
@@ -101,7 +112,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -112,7 +123,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -123,7 +134,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -134,7 +145,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -146,7 +157,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -158,7 +169,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -170,7 +181,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -182,7 +193,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperAId,
@@ -193,7 +204,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
 
     // LOWER A
@@ -206,7 +217,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerAId,
@@ -217,7 +228,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: lowerAId,
@@ -228,7 +239,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: lowerAId,
@@ -239,7 +250,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerAId,
@@ -250,7 +261,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerAId,
@@ -261,7 +272,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerAId,
@@ -272,7 +283,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
 
     // UPPER B
@@ -285,7 +296,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "0-1"
+      targetRIR: "0-1",
     },
     {
       workoutDayId: upperBId,
@@ -296,7 +307,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -307,7 +318,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperBId,
@@ -318,7 +329,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperBId,
@@ -329,7 +340,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: upperBId,
@@ -340,7 +351,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -351,7 +362,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -362,7 +373,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -373,7 +384,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -385,7 +396,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -397,7 +408,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -409,7 +420,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -421,7 +432,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: upperBId,
@@ -432,7 +443,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
 
     // LOWER B
@@ -445,7 +456,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: lowerBId,
@@ -456,7 +467,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerBId,
@@ -467,7 +478,7 @@ export async function seedWorkoutData() {
       warmupSets: 1,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerBId,
@@ -478,7 +489,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: lowerBId,
@@ -489,7 +500,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "1-2"
+      targetRIR: "1-2",
     },
     {
       workoutDayId: lowerBId,
@@ -500,7 +511,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerBId,
@@ -511,7 +522,7 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
+      targetRIR: "Failure",
     },
     {
       workoutDayId: lowerBId,
@@ -522,7 +533,12 @@ export async function seedWorkoutData() {
       warmupSets: 0,
       minReps: 6,
       maxReps: 8,
-      targetRIR: "Failure"
-    }
+      targetRIR: "Failure",
+    },
   ]);
+
+  await db.appMeta.put({
+    key: "initialSeedComplete",
+    value: true,
+  });
 }

@@ -2,7 +2,7 @@ import { db } from "./db";
 
 export async function exportWorkoutBackup() {
   const backup = {
-    version: 1,
+    version: 2,
     createdAt: new Date().toISOString(),
 
     data: {
@@ -11,6 +11,7 @@ export async function exportWorkoutBackup() {
       exercises: await db.exercises.toArray(),
       sessions: await db.sessions.toArray(),
       sets: await db.sets.toArray(),
+      appMeta: await db.appMeta.toArray(),
     },
   };
 
@@ -29,10 +30,14 @@ export async function exportWorkoutBackup() {
     .slice(0, 10);
 
   link.href = url;
-  link.download = `workout-tracker-backup-${date}.json`;
+
+  link.download =
+    `workout-tracker-backup-${date}.json`;
 
   document.body.appendChild(link);
+
   link.click();
+
   document.body.removeChild(link);
 
   URL.revokeObjectURL(url);
@@ -65,6 +70,11 @@ export async function importWorkoutBackup(file) {
     );
   }
 
+  const appMeta =
+    Array.isArray(backup.data.appMeta)
+      ? backup.data.appMeta
+      : [];
+
   await db.transaction(
     "rw",
     [
@@ -73,6 +83,7 @@ export async function importWorkoutBackup(file) {
       db.exercises,
       db.sessions,
       db.sets,
+      db.appMeta,
     ],
     async () => {
       await db.sets.clear();
@@ -80,6 +91,7 @@ export async function importWorkoutBackup(file) {
       await db.exercises.clear();
       await db.workoutDays.clear();
       await db.splits.clear();
+      await db.appMeta.clear();
 
       if (backup.data.splits.length) {
         await db.splits.bulkAdd(
@@ -109,6 +121,15 @@ export async function importWorkoutBackup(file) {
         await db.sets.bulkAdd(
           backup.data.sets
         );
+      }
+
+      if (appMeta.length) {
+        await db.appMeta.bulkAdd(appMeta);
+      } else {
+        await db.appMeta.put({
+          key: "initialSeedComplete",
+          value: true,
+        });
       }
     }
   );
