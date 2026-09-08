@@ -14,22 +14,28 @@ export default defineConfig({
       includeAssets: [
         "favicon.ico",
         "apple-touch-icon.png",
+        "wbx-workout-planner-banner.png",
       ],
 
       manifest: {
-        name: "Workout Tracker",
-        short_name: "Workout",
+        name: "WBX Workout Planner",
+
+        short_name: "WBX Planner",
 
         description:
-          "Personal workout tracking and strength progression app.",
+          "Personal workout planning, tracking and strength progression by WBX.",
 
-        theme_color: "#0b0c10",
-        background_color: "#0b0c10",
+        theme_color: "#08080b",
+
+        background_color: "#08080b",
 
         display: "standalone",
 
-        start_url: "/workout-tracker/",
-        scope: "/workout-tracker/",
+        start_url:
+          "/workout-tracker/",
+
+        scope:
+          "/workout-tracker/",
 
         icons: [
           {

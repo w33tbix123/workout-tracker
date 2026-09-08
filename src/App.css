@@ -2880,3 +2880,108 @@ button:disabled {
     left: 13px;
   }
 }
+
+/* ============================================================
+   WBX HOME BRAND BANNER
+   ============================================================ */
+
+.wbx-home-banner {
+  position: relative;
+
+  width: 100%;
+
+  margin:
+    0
+    0
+    18px;
+
+  padding:
+    13px
+    16px;
+
+  overflow: hidden;
+
+  border:
+    1px solid
+    rgba(239, 130, 120, 0.13);
+
+  border-radius: 22px;
+
+  background:
+    radial-gradient(
+      circle at 90% 20%,
+      rgba(239, 130, 120, 0.14),
+      transparent 35%
+    ),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.025),
+      transparent 45%
+    ),
+    #121218;
+
+  box-shadow:
+    0 14px 34px
+    rgba(0, 0, 0, 0.26);
+}
+
+.wbx-home-banner::after {
+  content: "";
+
+  position: absolute;
+
+  left: 10%;
+  right: 10%;
+  bottom: -1px;
+
+  height: 1px;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      rgba(239, 130, 120, 0.65),
+      transparent
+    );
+}
+
+.wbx-home-banner img {
+  display: block;
+
+  width: 100%;
+  height: auto;
+
+  max-height: 115px;
+
+  object-fit: contain;
+
+  filter:
+    drop-shadow(
+      0 7px 15px
+      rgba(239, 130, 120, 0.10)
+    );
+}
+
+.wbx-home-heading {
+  margin-bottom: 21px;
+}
+
+.wbx-home-heading .eyebrow {
+  color: var(--accent);
+}
+
+@media (max-width: 390px) {
+  .wbx-home-banner {
+    margin-bottom: 16px;
+
+    padding:
+      11px
+      13px;
+
+    border-radius: 19px;
+  }
+
+  .wbx-home-banner img {
+    max-height: 100px;
+  }
+}

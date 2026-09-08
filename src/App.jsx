@@ -36,17 +36,12 @@ function formatDate(dateString) {
     return "";
   }
 
-  return new Date(
-    dateString
-  ).toLocaleDateString(
-    "en-ZA",
-    {
-      weekday: "long",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    }
-  );
+  return new Date(dateString).toLocaleDateString("en-ZA", {
+    weekday: "long",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function formatShortDate(dateString) {
@@ -2394,7 +2389,7 @@ function App() {
   }
 
   // ============================================================
-  // PAUSE VIA BACK BUTTON
+  // PAUSE VIA BACK
   // ============================================================
 
   function makeCurrentDraft() {
@@ -4312,7 +4307,7 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              WORKOUT TRACKER
+              WBX WORKOUT PLANNER
             </p>
 
             <h1>
@@ -4516,7 +4511,7 @@ function App() {
             <p className="eyebrow">
               {workoutProgressOpen
                 ? "EXERCISE PROGRESS"
-                : "WORKOUT TRACKER"}
+                : "WBX WORKOUT PLANNER"}
             </p>
 
             <h1>
@@ -4823,7 +4818,7 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              WORKOUT TRACKER
+              WBX WORKOUT PLANNER
             </p>
 
             <h1>
@@ -4913,10 +4908,17 @@ function App() {
 
   return (
     <div className="app">
-      <header className="topbar">
+      <div className="wbx-home-banner">
+        <img
+          src={`${import.meta.env.BASE_URL}wbx-workout-planner-banner.png`}
+          alt="WBX Workout Planner"
+        />
+      </div>
+
+      <header className="topbar wbx-home-heading">
         <div>
           <p className="eyebrow">
-            WORKOUT TRACKER
+            WBX WORKOUT PLANNER
           </p>
 
           <h1>
@@ -5274,8 +5276,8 @@ function WorkoutSetRows({
 
                 <input
                   type="number"
-                  inputMode="numeric"
-                  step="1"
+                  inputMode="decimal"
+                  step="0.5"
                   value={
                     set.reps
                   }
