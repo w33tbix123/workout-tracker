@@ -4,6 +4,10 @@ import { useLiveQuery } from "dexie-react-hooks";
 import {
   LineChart,
   Line,
+  BarChart,
+  Bar,
+  Cell,
+  ReferenceLine,
   XAxis,
   YAxis,
   Tooltip,
@@ -23,12 +27,93 @@ import "./App.css";
 // HELPERS
 // ============================================================
 
-function calculateE1RM(weight, reps) {
-  if (!weight || !reps) {
+function normalizeDecimalInput(value) {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  let normalized = String(value)
+    .replace(",", ".")
+    .replace(/[^\d.-]/g, "");
+
+  const parts = normalized.split(".");
+
+  if (parts.length > 2) {
+    normalized =
+      parts.shift() +
+      "." +
+      parts.join("");
+  }
+
+  if (normalized.length > 1) {
+    normalized =
+      normalized.charAt(0) +
+      normalized
+        .slice(1)
+        .replace(/-/g, "");
+  }
+
+  return normalized;
+}
+
+function parseDecimal(value) {
+  if (
+    value === "" ||
+    value === null ||
+    value === undefined
+  ) {
+    return null;
+  }
+
+  const normalized = String(value)
+    .replace(",", ".")
+    .trim();
+
+  const number = Number(normalized);
+
+  return Number.isFinite(number)
+    ? number
+    : null;
+}
+
+// Blank RIR always means 0 RIR.
+function getRIRValue(value) {
+  const parsed = parseDecimal(value);
+
+  return parsed === null
+    ? 0
+    : parsed;
+}
+
+function calculateE1RM(
+  weight,
+  reps,
+  rir = 0
+) {
+  const w = parseDecimal(weight);
+  const r = parseDecimal(reps);
+
+  if (
+    w === null ||
+    r === null ||
+    w <= 0 ||
+    r <= 0
+  ) {
     return 0;
   }
 
-  return Number(weight) * (1 + Number(reps) / 30);
+  const rirValue = Math.max(
+    0,
+    getRIRValue(rir)
+  );
+
+  const effectiveReps =
+    r + rirValue;
+
+  return (
+    w *
+    (1 + effectiveReps / 30)
+  );
 }
 
 function formatDate(dateString) {
@@ -36,12 +121,17 @@ function formatDate(dateString) {
     return "";
   }
 
-  return new Date(dateString).toLocaleDateString("en-ZA", {
-    weekday: "long",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return new Date(
+    dateString
+  ).toLocaleDateString(
+    "en-ZA",
+    {
+      weekday: "long",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }
+  );
 }
 
 function formatShortDate(dateString) {
@@ -49,10 +139,15 @@ function formatShortDate(dateString) {
     return "";
   }
 
-  return new Date(dateString).toLocaleDateString("en-ZA", {
-    day: "numeric",
-    month: "short",
-  });
+  return new Date(
+    dateString
+  ).toLocaleDateString(
+    "en-ZA",
+    {
+      day: "numeric",
+      month: "short",
+    }
+  );
 }
 
 function formatTime(dateString) {
@@ -60,80 +155,115 @@ function formatTime(dateString) {
     return "";
   }
 
-  return new Date(dateString).toLocaleTimeString("en-ZA", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return new Date(
+    dateString
+  ).toLocaleTimeString(
+    "en-ZA",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
 }
 
+// ============================================================
+// HISTORY PERFORMANCE HELPERS
+// ============================================================
+
+function getBestPerformanceScore(sets = []) {
+  const scores = sets
+    .map((set) =>
+      calculateE1RM(
+        set.weight,
+        set.reps,
+        getRIRValue(set.rir)
+      )
+    )
+    .filter((score) => score > 0);
+
+  return scores.length
+    ? Math.max(...scores)
+    : 0;
+}
+
+function getProgressStatus(percentageChange) {
+  const SAME_THRESHOLD = 0.05;
+
+  if (percentageChange > SAME_THRESHOLD) {
+    return "improved";
+  }
+
+  if (percentageChange < -SAME_THRESHOLD) {
+    return "regressed";
+  }
+
+  return "same";
+}
+
+function formatProgressPercentage(value) {
+  const safeValue = Number.isFinite(Number(value))
+    ? Number(value)
+    : 0;
+
+  const rounded = Math.abs(safeValue) < 0.05
+    ? 0
+    : safeValue;
+
+  return `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}%`;
+}
+
+// ============================================================
+// PROGRESSION COMPARISON
+// ============================================================
+
 function compareSet(current, previous) {
+  if (!previous) {
+    return null;
+  }
+
+  const currentWeight =
+    parseDecimal(current.weight);
+
+  const currentReps =
+    parseDecimal(current.reps);
+
+  const previousWeight =
+    parseDecimal(previous.weight);
+
+  const previousReps =
+    parseDecimal(previous.reps);
+
   if (
-    !previous ||
-    current.weight === "" ||
-    current.reps === ""
+    currentWeight === null ||
+    currentReps === null ||
+    previousWeight === null ||
+    previousReps === null
   ) {
     return null;
   }
 
-  const currentWeight = Number(current.weight);
-  const currentReps = Number(current.reps);
+  const currentRIR =
+    getRIRValue(current.rir);
 
-  const previousWeight = Number(previous.weight);
-  const previousReps = Number(previous.reps);
+  const previousRIR =
+    getRIRValue(previous.rir);
 
-  if (
-    currentWeight > previousWeight &&
-    currentReps >= previousReps
-  ) {
-    return {
-      type: "improved",
-      text: `↑ +${currentWeight - previousWeight}kg`,
-    };
-  }
+  const weightDiff =
+    currentWeight -
+    previousWeight;
 
-  if (
-    currentWeight === previousWeight &&
-    currentReps > previousReps
-  ) {
-    const difference =
-      currentReps - previousReps;
+  const repsDiff =
+    currentReps -
+    previousReps;
 
-    return {
-      type: "improved",
-      text: `↑ +${difference} rep${
-        difference === 1 ? "" : "s"
-      }`,
-    };
-  }
+  const rirDiff =
+    currentRIR -
+    previousRIR;
 
   if (
-    currentWeight < previousWeight &&
-    currentReps <= previousReps
-  ) {
-    return {
-      type: "regressed",
-      text: `↓ ${currentWeight - previousWeight}kg`,
-    };
-  }
-
-  if (
-    currentWeight === previousWeight &&
-    currentReps < previousReps
-  ) {
-    const difference =
-      currentReps - previousReps;
-
-    return {
-      type: "regressed",
-      text: `↓ ${difference} rep${
-        Math.abs(difference) === 1 ? "" : "s"
-      }`,
-    };
-  }
-
-  if (
-    currentWeight === previousWeight &&
-    currentReps === previousReps
+    weightDiff === 0 &&
+    repsDiff === 0 &&
+    rirDiff === 0
   ) {
     return {
       type: "same",
@@ -141,18 +271,127 @@ function compareSet(current, previous) {
     };
   }
 
+  const changes = [];
+
+  if (weightDiff > 0) {
+    changes.push(
+      `+${weightDiff}kg`
+    );
+  } else if (weightDiff < 0) {
+    changes.push(
+      `${weightDiff}kg`
+    );
+  }
+
+  if (repsDiff > 0) {
+    changes.push(
+      `+${repsDiff} rep${
+        repsDiff === 1
+          ? ""
+          : "s"
+      }`
+    );
+  } else if (repsDiff < 0) {
+    changes.push(
+      `${repsDiff} rep${
+        Math.abs(repsDiff) === 1
+          ? ""
+          : "s"
+      }`
+    );
+  }
+
+  if (rirDiff > 0) {
+    changes.push(
+      `+${rirDiff} RIR`
+    );
+  } else if (rirDiff < 0) {
+    changes.push(
+      `${rirDiff} RIR`
+    );
+  }
+
+  const hasPositiveChange =
+    weightDiff > 0 ||
+    repsDiff > 0 ||
+    rirDiff > 0;
+
+  const hasNegativeChange =
+    weightDiff < 0 ||
+    repsDiff < 0 ||
+    rirDiff < 0;
+
+  if (
+    hasPositiveChange &&
+    !hasNegativeChange
+  ) {
+    return {
+      type: "improved",
+      text: `↑ ${changes.join(" · ")}`,
+    };
+  }
+
+  if (
+    hasNegativeChange &&
+    !hasPositiveChange
+  ) {
+    return {
+      type: "regressed",
+      text: `↓ ${changes.join(" · ")}`,
+    };
+  }
+
+  const currentScore =
+    calculateE1RM(
+      currentWeight,
+      currentReps,
+      currentRIR
+    );
+
+  const previousScore =
+    calculateE1RM(
+      previousWeight,
+      previousReps,
+      previousRIR
+    );
+
+  const scoreDifference =
+    currentScore -
+    previousScore;
+
+  if (
+    Math.abs(scoreDifference) <
+    0.05
+  ) {
+    return {
+      type: "mixed",
+      text: `↔ ${changes.join(" · ")}`,
+    };
+  }
+
+  if (scoreDifference > 0) {
+    return {
+      type: "improved",
+      text: `↑ ${changes.join(" · ")}`,
+    };
+  }
+
   return {
-    type: "mixed",
-    text: "↔ Mixed",
+    type: "regressed",
+    text: `↓ ${changes.join(" · ")}`,
   };
 }
 
-function getExerciseOrderKey(exercise) {
+function getExerciseOrderKey(
+  exercise
+) {
   if (!exercise) {
     return null;
   }
 
-  if (exercise.alternativeGroup) {
+  if (
+    exercise.alternativeGroup
+  ) {
     return `group:${exercise.alternativeGroup}`;
   }
 
@@ -176,8 +415,10 @@ const EMPTY_EXERCISE_FORM = {
 // ============================================================
 
 function App() {
-  const [activeTab, setActiveTab] =
-    useState("home");
+  const [
+    activeTab,
+    setActiveTab,
+  ] = useState("home");
 
   const [
     selectedSplitId,
@@ -233,6 +474,11 @@ function App() {
     workoutProgressOpen,
     setWorkoutProgressOpen,
   ] = useState(false);
+
+  const [
+    historyProgressReturn,
+    setHistoryProgressReturn,
+  ] = useState(null);
 
   const [
     selectedHistorySessionId,
@@ -317,7 +563,7 @@ function App() {
   });
 
   // ============================================================
-  // LOAD DRAFT
+  // LOAD PAUSED WORKOUT
   // ============================================================
 
   useEffect(() => {
@@ -328,7 +574,9 @@ function App() {
             "activeWorkoutDraft"
           );
 
-        if (savedDraft?.value) {
+        if (
+          savedDraft?.value
+        ) {
           setPausedWorkout(
             savedDraft.value
           );
@@ -348,22 +596,26 @@ function App() {
   // SPLITS
   // ============================================================
 
-  const splits = useLiveQuery(
-    async () => {
-      const all =
-        await db.splits.toArray();
+  const splits =
+    useLiveQuery(
+      async () => {
+        const all =
+          await db.splits.toArray();
 
-      return all.filter(
-        (split) => !split.archived
-      );
-    },
-    []
-  );
+        return all.filter(
+          (split) =>
+            !split.archived
+        );
+      },
+      []
+    );
 
   const selectedSplit =
     useLiveQuery(
       async () => {
-        if (!selectedSplitId) {
+        if (
+          !selectedSplitId
+        ) {
           return null;
         }
 
@@ -381,7 +633,9 @@ function App() {
   const workoutDays =
     useLiveQuery(
       async () => {
-        if (!selectedSplitId) {
+        if (
+          !selectedSplitId
+        ) {
           return [];
         }
 
@@ -404,7 +658,9 @@ function App() {
   const selectedDay =
     useLiveQuery(
       async () => {
-        if (!selectedDayId) {
+        if (
+          !selectedDayId
+        ) {
           return null;
         }
 
@@ -422,7 +678,9 @@ function App() {
   const exercises =
     useLiveQuery(
       async () => {
-        if (!selectedDayId) {
+        if (
+          !selectedDayId
+        ) {
           return [];
         }
 
@@ -464,10 +722,13 @@ function App() {
         exercise.alternativeGroup;
 
       if (
-        !alternativeGroups[group]
+        !alternativeGroups[
+          group
+        ]
       ) {
-        alternativeGroups[group] =
-          [];
+        alternativeGroups[
+          group
+        ] = [];
       }
 
       alternativeGroups[
@@ -525,7 +786,8 @@ function App() {
         );
 
         const latestDaySession =
-          sessions[0] || null;
+          sessions[0] ||
+          null;
 
         const exerciseData = {};
 
@@ -552,7 +814,9 @@ function App() {
                 )
                 .toArray();
 
-            if (sets.length) {
+            if (
+              sets.length
+            ) {
               sets.sort(
                 (a, b) =>
                   a.setNumber -
@@ -602,7 +866,7 @@ function App() {
     );
 
   // ============================================================
-  // ORDER FROM LAST SESSION
+  // LEARN EXERCISE ORDER
   // ============================================================
 
   const orderedExercises =
@@ -617,7 +881,9 @@ function App() {
           ?.exerciseOrderKeys ||
         [];
 
-      if (!savedOrder.length) {
+      if (
+        !savedOrder.length
+      ) {
         return source;
       }
 
@@ -636,26 +902,40 @@ function App() {
       return source.sort(
         (a, b) => {
           const keyA =
-            getExerciseOrderKey(a);
+            getExerciseOrderKey(
+              a
+            );
 
           const keyB =
-            getExerciseOrderKey(b);
+            getExerciseOrderKey(
+              b
+            );
 
           const rankA =
-            rankMap.has(keyA)
-              ? rankMap.get(keyA)
+            rankMap.has(
+              keyA
+            )
+              ? rankMap.get(
+                  keyA
+                )
               : 9999;
 
           const rankB =
-            rankMap.has(keyB)
-              ? rankMap.get(keyB)
+            rankMap.has(
+              keyB
+            )
+              ? rankMap.get(
+                  keyB
+                )
               : 9999;
 
           if (
             rankA !== rankB
           ) {
-            return rankA -
-              rankB;
+            return (
+              rankA -
+              rankB
+            );
           }
 
           return (
@@ -676,7 +956,8 @@ function App() {
     const keys = [];
 
     (
-      orderedExercises || []
+      orderedExercises ||
+      []
     ).forEach(
       (exercise) => {
         const key =
@@ -745,12 +1026,15 @@ function App() {
           };
 
           try {
-            await db.appMeta.put({
-              key:
-                "activeWorkoutDraft",
+            await db.appMeta.put(
+              {
+                key:
+                  "activeWorkoutDraft",
 
-              value: draft,
-            });
+                value:
+                  draft,
+              }
+            );
 
             setPausedWorkout(
               draft
@@ -788,33 +1072,172 @@ function App() {
   const historySessions =
     useLiveQuery(
       async () => {
-        const sessions =
-          await db.sessions.toArray();
-
-        const days =
-          await db.workoutDays.toArray();
+        const [
+          sessions,
+          days,
+          allExercises,
+          allSets,
+        ] = await Promise.all([
+          db.sessions.toArray(),
+          db.workoutDays.toArray(),
+          db.exercises.toArray(),
+          db.sets.toArray(),
+        ]);
 
         const dayMap = {};
+        const exerciseMap = {};
+        const setsBySession = {};
 
         days.forEach((day) => {
-          dayMap[day.id] =
-            day;
+          dayMap[day.id] = day;
         });
 
-        return sessions
-          .sort(
-            (a, b) =>
-              new Date(b.date) -
-              new Date(a.date)
-          )
-          .map((session) => ({
-            ...session,
+        allExercises.forEach((exercise) => {
+          exerciseMap[exercise.id] = exercise;
+        });
 
+        allSets.forEach((set) => {
+          if (!setsBySession[set.sessionId]) {
+            setsBySession[set.sessionId] = {};
+          }
+
+          if (!setsBySession[set.sessionId][set.exerciseId]) {
+            setsBySession[set.sessionId][set.exerciseId] = [];
+          }
+
+          setsBySession[set.sessionId][set.exerciseId].push(set);
+        });
+
+        Object.values(setsBySession).forEach((sessionGroups) => {
+          Object.values(sessionGroups).forEach((sets) => {
+            sets.sort((a, b) => a.setNumber - b.setNumber);
+          });
+        });
+
+        const lastPerformanceByExercise = new Map();
+
+        const chronologicalSessions = [...sessions].sort(
+          (a, b) =>
+            new Date(a.date) -
+            new Date(b.date)
+        );
+
+        const enriched = chronologicalSessions.map((session) => {
+          const groupedSets =
+            setsBySession[session.id] || {};
+
+          const exerciseComparisons = [];
+
+          Object.entries(groupedSets).forEach(
+            ([exerciseIdString, currentSets]) => {
+              const exerciseId = Number(exerciseIdString);
+              const exercise = exerciseMap[exerciseId];
+
+              const currentScore =
+                getBestPerformanceScore(currentSets);
+
+              if (currentScore <= 0) {
+                return;
+              }
+
+              const previous =
+                lastPerformanceByExercise.get(exerciseId);
+
+              if (!previous || previous.score <= 0) {
+                exerciseComparisons.push({
+                  exerciseId,
+                  exerciseName:
+                    exercise?.name || "Exercise",
+                  status: "new",
+                  percentageChange: null,
+                  currentScore,
+                  previousScore: null,
+                  previousSessionId: null,
+                  previousDate: null,
+                });
+              } else {
+                const percentageChange =
+                  ((currentScore - previous.score) /
+                    previous.score) *
+                  100;
+
+                exerciseComparisons.push({
+                  exerciseId,
+                  exerciseName:
+                    exercise?.name || "Exercise",
+                  status:
+                    getProgressStatus(percentageChange),
+                  percentageChange,
+                  currentScore,
+                  previousScore: previous.score,
+                  previousSessionId: previous.sessionId,
+                  previousDate: previous.date,
+                });
+              }
+
+              lastPerformanceByExercise.set(exerciseId, {
+                score: currentScore,
+                sessionId: session.id,
+                date: session.date,
+              });
+            }
+          );
+
+          const comparable = exerciseComparisons.filter(
+            (comparison) =>
+              comparison.status !== "new" &&
+              Number.isFinite(comparison.percentageChange)
+          );
+
+          const improved = comparable.filter(
+            (comparison) =>
+              comparison.status === "improved"
+          ).length;
+
+          const same = comparable.filter(
+            (comparison) =>
+              comparison.status === "same"
+          ).length;
+
+          const regressed = comparable.filter(
+            (comparison) =>
+              comparison.status === "regressed"
+          ).length;
+
+          const newCount = exerciseComparisons.filter(
+            (comparison) =>
+              comparison.status === "new"
+          ).length;
+
+          const overallPercentage = comparable.length
+            ? comparable.reduce(
+                (total, comparison) =>
+                  total + comparison.percentageChange,
+                0
+              ) / comparable.length
+            : null;
+
+          return {
+            ...session,
             workoutDay:
-              dayMap[
-                session.workoutDayId
-              ],
-          }));
+              dayMap[session.workoutDayId],
+            progressSummary: {
+              overallPercentage,
+              improved,
+              same,
+              regressed,
+              newCount,
+              comparableCount: comparable.length,
+              exerciseComparisons,
+            },
+          };
+        });
+
+        return enriched.sort(
+          (a, b) =>
+            new Date(b.date) -
+            new Date(a.date)
+        );
       },
       []
     );
@@ -822,7 +1245,8 @@ function App() {
   const historyYears = [
     ...new Set(
       (
-        historySessions || []
+        historySessions ||
+        []
       ).map((session) =>
         new Date(
           session.date
@@ -830,48 +1254,52 @@ function App() {
       )
     ),
   ].sort(
-    (a, b) => b - a
+    (a, b) =>
+      b - a
   );
 
   const filteredHistorySessions =
     (
-      historySessions || []
-    ).filter((session) => {
-      const date =
-        new Date(
-          session.date
+      historySessions ||
+      []
+    ).filter(
+      (session) => {
+        const date =
+          new Date(
+            session.date
+          );
+
+        const matchesSearch =
+          session.workoutDay
+            ?.name
+            ?.toLowerCase()
+            .includes(
+              historySearch.toLowerCase()
+            ) ?? false;
+
+        const matchesMonth =
+          historyMonth ===
+            "all" ||
+          date.getMonth() ===
+            Number(
+              historyMonth
+            );
+
+        const matchesYear =
+          historyYear ===
+            "all" ||
+          date.getFullYear() ===
+            Number(
+              historyYear
+            );
+
+        return (
+          matchesSearch &&
+          matchesMonth &&
+          matchesYear
         );
-
-      const matchesSearch =
-        session.workoutDay
-          ?.name
-          ?.toLowerCase()
-          .includes(
-            historySearch.toLowerCase()
-          ) ?? false;
-
-      const matchesMonth =
-        historyMonth ===
-          "all" ||
-        date.getMonth() ===
-          Number(
-            historyMonth
-          );
-
-      const matchesYear =
-        historyYear ===
-          "all" ||
-        date.getFullYear() ===
-          Number(
-            historyYear
-          );
-
-      return (
-        matchesSearch &&
-        matchesMonth &&
-        matchesYear
-      );
-    });
+      }
+    );
 
   const selectedHistorySession =
     useLiveQuery(
@@ -918,21 +1346,23 @@ function App() {
 
         const groupedSets = {};
 
-        sets.forEach((set) => {
-          if (
-            !groupedSets[
-              set.exerciseId
-            ]
-          ) {
+        sets.forEach(
+          (set) => {
+            if (
+              !groupedSets[
+                set.exerciseId
+              ]
+            ) {
+              groupedSets[
+                set.exerciseId
+              ] = [];
+            }
+
             groupedSets[
               set.exerciseId
-            ] = [];
+            ].push(set);
           }
-
-          groupedSets[
-            set.exerciseId
-          ].push(set);
-        });
+        );
 
         Object.values(
           groupedSets
@@ -950,13 +1380,20 @@ function App() {
           session,
           workoutDay,
           allExercises,
-          sets: groupedSets,
+          sets:
+            groupedSets,
         };
       },
       [
         selectedHistorySessionId,
       ]
     );
+
+  const selectedHistorySummary =
+    (historySessions || []).find(
+      (session) =>
+        session.id === selectedHistorySessionId
+    )?.progressSummary || null;
 
   // ============================================================
   // PROGRESS
@@ -977,7 +1414,9 @@ function App() {
           ),
         ].sort(
           (a, b) =>
-            a.localeCompare(b)
+            a.localeCompare(
+              b
+            )
         );
       },
       []
@@ -985,7 +1424,8 @@ function App() {
 
   const filteredProgressExercises =
     (
-      allExerciseNames || []
+      allExerciseNames ||
+      []
     ).filter((name) =>
       name
         .toLowerCase()
@@ -1025,10 +1465,11 @@ function App() {
           await db.sets.toArray();
 
         const matchingSets =
-          allSets.filter((set) =>
-            exerciseIds.includes(
-              set.exerciseId
-            )
+          allSets.filter(
+            (set) =>
+              exerciseIds.includes(
+                set.exerciseId
+              )
           );
 
         if (
@@ -1064,7 +1505,9 @@ function App() {
                 set.sessionId
               ];
 
-            if (!session) {
+            if (
+              !session
+            ) {
               return;
             }
 
@@ -1088,69 +1531,97 @@ function App() {
 
             grouped[
               session.id
-            ].sets.push(set);
+            ].sets.push(
+              set
+            );
           }
         );
 
         const sessionData =
-          Object.values(grouped)
-            .map((session) => {
-              const sets = [
-                ...session.sets,
-              ]
-                .sort(
-                  (a, b) =>
-                    a.setNumber -
-                    b.setNumber
-                )
-                .map((set) => ({
-                  ...set,
+          Object.values(
+            grouped
+          )
+            .map(
+              (session) => {
+                const sets = [
+                  ...session.sets,
+                ]
+                  .sort(
+                    (a, b) =>
+                      a.setNumber -
+                      b.setNumber
+                  )
+                  .map(
+                    (set) => ({
+                      ...set,
 
-                  e1rm:
-                    calculateE1RM(
-                      set.weight,
-                      set.reps
+                      e1rm:
+                        calculateE1RM(
+                          set.weight,
+                          set.reps,
+                          getRIRValue(
+                            set.rir
+                          )
+                        ),
+                    })
+                  );
+
+                const validSets =
+                  sets.filter(
+                    (set) =>
+                      set.e1rm >
+                      0
+                  );
+
+                const bestSet =
+                  validSets.length
+                    ? validSets.reduce(
+                        (
+                          best,
+                          current
+                        ) =>
+                          current.e1rm >
+                          best.e1rm
+                            ? current
+                            : best
+                      )
+                    : null;
+
+                return {
+                  ...session,
+                  sets,
+
+                  bestWeight:
+                    Math.max(
+                      0,
+                      ...sets.map(
+                        (set) =>
+                          parseDecimal(
+                            set.weight
+                          ) ||
+                          0
+                      )
                     ),
-                }));
 
-              const bestSet =
-                sets.reduce(
-                  (
-                    best,
-                    current
-                  ) =>
-                    current.e1rm >
-                    best.e1rm
-                      ? current
-                      : best
-                );
-
-              return {
-                ...session,
-                sets,
-
-                bestWeight:
-                  Math.max(
-                    ...sets.map(
-                      (set) =>
-                        Number(
-                          set.weight
-                        )
-                    )
-                  ),
-
-                bestE1RM:
-                  bestSet.e1rm,
-              };
-            })
+                  bestE1RM:
+                    bestSet?.e1rm ||
+                    0,
+                };
+              }
+            )
             .sort(
               (a, b) =>
-                new Date(a.date) -
-                new Date(b.date)
+                new Date(
+                  a.date
+                ) -
+                new Date(
+                  b.date
+                )
             );
 
         const bestWeight =
           Math.max(
+            0,
             ...sessionData.map(
               (session) =>
                 session.bestWeight
@@ -1159,6 +1630,7 @@ function App() {
 
         const bestE1RM =
           Math.max(
+            0,
             ...sessionData.map(
               (session) =>
                 session.bestE1RM
@@ -1167,12 +1639,15 @@ function App() {
 
         const first =
           sessionData[0]
-            ?.bestE1RM || 0;
+            ?.bestE1RM ||
+          0;
 
         const latest =
           sessionData[
-            sessionData.length - 1
-          ]?.bestE1RM || 0;
+            sessionData.length -
+              1
+          ]?.bestE1RM ||
+          0;
 
         const change =
           first > 0
@@ -1187,7 +1662,9 @@ function App() {
             sessionData,
 
           bestWeight,
+
           bestE1RM,
+
           change,
         };
       },
@@ -1197,16 +1674,237 @@ function App() {
     );
 
   // ============================================================
-  // MANAGEMENT
+  // MONTHLY UPPER / LOWER BODY PROGRESSION
+  // ============================================================
+
+  const monthlyBodyProgress =
+    useLiveQuery(
+      async () => {
+        const [
+          sessions,
+          days,
+          allExercises,
+          allSets,
+        ] = await Promise.all([
+          db.sessions.toArray(),
+          db.workoutDays.toArray(),
+          db.exercises.toArray(),
+          db.sets.toArray(),
+        ]);
+
+        const dayMap = {};
+        const exerciseMap = {};
+        const setsBySession = {};
+
+        days.forEach((day) => {
+          dayMap[day.id] = day;
+        });
+
+        allExercises.forEach((exercise) => {
+          exerciseMap[exercise.id] = exercise;
+        });
+
+        allSets.forEach((set) => {
+          if (!setsBySession[set.sessionId]) {
+            setsBySession[set.sessionId] = {};
+          }
+
+          if (!setsBySession[set.sessionId][set.exerciseId]) {
+            setsBySession[set.sessionId][set.exerciseId] = [];
+          }
+
+          setsBySession[set.sessionId][set.exerciseId].push(set);
+        });
+
+        function getBodyType(workoutDayName = "") {
+          const name = workoutDayName.toLowerCase();
+
+          if (name.includes("upper")) {
+            return "upper";
+          }
+
+          if (name.includes("lower")) {
+            return "lower";
+          }
+
+          return null;
+        }
+
+        function getMonthKey(dateString) {
+          const date = new Date(dateString);
+          const year = date.getFullYear();
+          const month = String(date.getMonth() + 1).padStart(2, "0");
+          return `${year}-${month}`;
+        }
+
+        function getPreviousMonthKey(monthKey) {
+          const [year, month] = monthKey.split("-").map(Number);
+          const previous = new Date(year, month - 2, 1);
+          return `${previous.getFullYear()}-${String(
+            previous.getMonth() + 1
+          ).padStart(2, "0")}`;
+        }
+
+        function formatMonthKey(monthKey) {
+          const [year, month] = monthKey.split("-").map(Number);
+          return new Date(year, month - 1, 1).toLocaleDateString(
+            "en-ZA",
+            {
+              month: "short",
+              year: "numeric",
+            }
+          );
+        }
+
+        const monthlyPerformances = {
+          upper: {},
+          lower: {},
+        };
+
+        [...sessions]
+          .sort(
+            (a, b) =>
+              new Date(a.date) -
+              new Date(b.date)
+          )
+          .forEach((session) => {
+            const day = dayMap[session.workoutDayId];
+            const bodyType = getBodyType(day?.name || "");
+
+            if (!bodyType) {
+              return;
+            }
+
+            const monthKey = getMonthKey(session.date);
+
+            if (!monthlyPerformances[bodyType][monthKey]) {
+              monthlyPerformances[bodyType][monthKey] = {};
+            }
+
+            const groupedSets = setsBySession[session.id] || {};
+
+            Object.entries(groupedSets).forEach(
+              ([exerciseIdString, sets]) => {
+                const exerciseId = Number(exerciseIdString);
+                const exercise = exerciseMap[exerciseId];
+
+                if (!exercise?.name) {
+                  return;
+                }
+
+                const score = getBestPerformanceScore(sets);
+
+                if (score <= 0) {
+                  return;
+                }
+
+                // Match the same exercise across Upper A / Upper B or
+                // Lower A / Lower B by exercise name, just like the
+                // individual Progress tab does.
+                const exerciseKey = exercise.name
+                  .trim()
+                  .toLowerCase();
+
+                monthlyPerformances[bodyType][monthKey][exerciseKey] = {
+                  score,
+                  date: session.date,
+                  exerciseName: exercise.name,
+                };
+              }
+            );
+          });
+
+        function buildBodyProgress(bodyType) {
+          const byMonth = monthlyPerformances[bodyType];
+          const monthKeys = Object.keys(byMonth).sort();
+
+          const months = monthKeys.map((monthKey) => {
+            const previousMonthKey = getPreviousMonthKey(monthKey);
+            const currentExercises = byMonth[monthKey] || {};
+            const previousExercises = byMonth[previousMonthKey] || {};
+
+            const changes = Object.entries(currentExercises)
+              .map(([exerciseKey, current]) => {
+                const previous = previousExercises[exerciseKey];
+
+                if (!previous || previous.score <= 0) {
+                  return null;
+                }
+
+                const percentageChange =
+                  ((current.score - previous.score) /
+                    previous.score) *
+                  100;
+
+                return {
+                  exerciseKey,
+                  exerciseName: current.exerciseName,
+                  percentageChange,
+                };
+              })
+              .filter(Boolean);
+
+            const percentage = changes.length
+              ? changes.reduce(
+                  (total, item) =>
+                    total + item.percentageChange,
+                  0
+                ) / changes.length
+              : null;
+
+            return {
+              monthKey,
+              monthLabel: formatMonthKey(monthKey),
+              previousMonthKey,
+              percentage,
+              comparableExercises: changes.length,
+            };
+          });
+
+          const comparableMonths = months.filter(
+            (month) => Number.isFinite(month.percentage)
+          );
+
+          return {
+            months,
+            chartData: comparableMonths.map((month) => ({
+              month: month.monthLabel,
+              percentage: Number(month.percentage.toFixed(2)),
+            })),
+            latest:
+              comparableMonths.length > 0
+                ? comparableMonths[comparableMonths.length - 1]
+                : null,
+          };
+        }
+
+        return {
+          upper: buildBodyProgress("upper"),
+          lower: buildBodyProgress("lower"),
+        };
+      },
+      []
+    );
+
+  // ============================================================
+  // SPLIT MANAGEMENT
   // ============================================================
 
   function openNewSplit() {
-    setEditingSplitId(null);
+    setEditingSplitId(
+      null
+    );
+
     setSplitName("");
-    setShowSplitForm(true);
+
+    setShowSplitForm(
+      true
+    );
   }
 
-  function openEditSplit(split) {
+  function openEditSplit(
+    split
+  ) {
     setEditingSplitId(
       split.id
     );
@@ -1215,7 +1913,9 @@ function App() {
       split.name
     );
 
-    setShowSplitForm(true);
+    setShowSplitForm(
+      true
+    );
   }
 
   async function saveSplit() {
@@ -1226,10 +1926,13 @@ function App() {
       alert(
         "Enter a split name."
       );
+
       return;
     }
 
-    if (editingSplitId) {
+    if (
+      editingSplitId
+    ) {
       await db.splits.update(
         editingSplitId,
         { name }
@@ -1241,12 +1944,20 @@ function App() {
       });
     }
 
-    setShowSplitForm(false);
-    setEditingSplitId(null);
+    setShowSplitForm(
+      false
+    );
+
+    setEditingSplitId(
+      null
+    );
+
     setSplitName("");
   }
 
-  async function deleteSplit(split) {
+  async function deleteSplit(
+    split
+  ) {
     const confirmed =
       window.confirm(
         `Remove "${split.name}"?\n\nPrevious workout history will stay saved.`
@@ -1275,7 +1986,9 @@ function App() {
           }
         );
 
-        for (const day of days) {
+        for (
+          const day of days
+        ) {
           await db.workoutDays.update(
             day.id,
             {
@@ -1297,7 +2010,8 @@ function App() {
             await db.exercises.update(
               exercise.id,
               {
-                archived: true,
+                archived:
+                  true,
               }
             );
           }
@@ -1305,18 +2019,35 @@ function App() {
       }
     );
 
-    setSelectedSplitId(null);
-    setSelectedDayId(null);
+    setSelectedSplitId(
+      null
+    );
+
+    setSelectedDayId(
+      null
+    );
   }
+
+  // ============================================================
+  // DAY MANAGEMENT
+  // ============================================================
 
   function openNewDay() {
-    setEditingDayId(null);
+    setEditingDayId(
+      null
+    );
+
     setDayName("");
     setDayOfWeek("");
-    setShowDayForm(true);
+
+    setShowDayForm(
+      true
+    );
   }
 
-  function openEditDay(day) {
+  function openEditDay(
+    day
+  ) {
     setEditingDayId(
       day.id
     );
@@ -1326,10 +2057,13 @@ function App() {
     );
 
     setDayOfWeek(
-      day.dayOfWeek || ""
+      day.dayOfWeek ||
+        ""
     );
 
-    setShowDayForm(true);
+    setShowDayForm(
+      true
+    );
   }
 
   async function saveDay() {
@@ -1340,10 +2074,13 @@ function App() {
       alert(
         "Enter a workout day name."
       );
+
       return;
     }
 
-    if (editingDayId) {
+    if (
+      editingDayId
+    ) {
       await db.workoutDays.update(
         editingDayId,
         {
@@ -1354,26 +2091,36 @@ function App() {
         }
       );
     } else {
-      await db.workoutDays.add({
-        splitId:
-          selectedSplitId,
+      await db.workoutDays.add(
+        {
+          splitId:
+            selectedSplitId,
 
-        name,
+          name,
 
-        dayOfWeek:
-          dayOfWeek.trim(),
+          dayOfWeek:
+            dayOfWeek.trim(),
 
-        archived: false,
-      });
+          archived: false,
+        }
+      );
     }
 
-    setShowDayForm(false);
-    setEditingDayId(null);
+    setShowDayForm(
+      false
+    );
+
+    setEditingDayId(
+      null
+    );
+
     setDayName("");
     setDayOfWeek("");
   }
 
-  async function deleteDay(day) {
+  async function deleteDay(
+    day
+  ) {
     const confirmed =
       window.confirm(
         `Remove "${day.name}"?\n\nPrevious workouts will remain in History.`
@@ -1409,20 +2156,32 @@ function App() {
       );
     }
 
-    setSelectedDayId(null);
+    setSelectedDayId(
+      null
+    );
   }
 
+  // ============================================================
+  // EXERCISE MANAGEMENT
+  // ============================================================
+
   function openNewExercise() {
-    setEditingExerciseId(null);
+    setEditingExerciseId(
+      null
+    );
 
     setExerciseForm({
       ...EMPTY_EXERCISE_FORM,
     });
 
-    setShowExerciseForm(true);
+    setShowExerciseForm(
+      true
+    );
   }
 
-  async function openEditExercise(exercise) {
+  async function openEditExercise(
+    exercise
+  ) {
     let hasAlternative =
       false;
 
@@ -1450,7 +2209,9 @@ function App() {
           )
           .toArray();
 
-      if (partners.length) {
+      if (
+        partners.length
+      ) {
         hasAlternative =
           true;
 
@@ -1465,7 +2226,8 @@ function App() {
 
     setExerciseForm({
       name:
-        exercise.name || "",
+        exercise.name ||
+        "",
 
       targetSets:
         exercise.targetSets ??
@@ -1495,7 +2257,9 @@ function App() {
       alternativeName,
     });
 
-    setShowExerciseForm(true);
+    setShowExerciseForm(
+      true
+    );
   }
 
   async function saveExercise() {
@@ -1506,6 +2270,7 @@ function App() {
       alert(
         "Enter an exercise name."
       );
+
       return;
     }
 
@@ -1516,6 +2281,7 @@ function App() {
       alert(
         "Enter an alternative exercise."
       );
+
       return;
     }
 
@@ -1549,7 +2315,9 @@ function App() {
       archived: false,
     };
 
-    if (!editingExerciseId) {
+    if (
+      !editingExerciseId
+    ) {
       const existing =
         await db.exercises
           .where(
@@ -1619,20 +2387,22 @@ function App() {
           ]
         );
       } else {
-        await db.exercises.add({
-          workoutDayId:
-            selectedDayId,
+        await db.exercises.add(
+          {
+            workoutDayId:
+              selectedDayId,
 
-          name,
+            name,
 
-          order:
-            nextOrder,
+            order:
+              nextOrder,
 
-          alternativeGroup:
-            null,
+            alternativeGroup:
+              null,
 
-          ...template,
-        });
+            ...template,
+          }
+        );
       }
     } else {
       const current =
@@ -1689,7 +2459,9 @@ function App() {
           }
         );
 
-        if (partners.length) {
+        if (
+          partners.length
+        ) {
           await db.exercises.update(
             partners[0].id,
             {
@@ -1703,23 +2475,25 @@ function App() {
             }
           );
         } else {
-          await db.exercises.add({
-            workoutDayId:
-              current.workoutDayId,
+          await db.exercises.add(
+            {
+              workoutDayId:
+                current.workoutDayId,
 
-            name:
-              exerciseForm.alternativeName.trim(),
+              name:
+                exerciseForm.alternativeName.trim(),
 
-            order:
-              Number(
-                current.order
-              ) + 0.01,
+              order:
+                Number(
+                  current.order
+                ) + 0.01,
 
-            alternativeGroup:
-              group,
+              alternativeGroup:
+                group,
 
-            ...template,
-          });
+              ...template,
+            }
+          );
         }
       } else {
         await db.exercises.update(
@@ -1740,22 +2514,30 @@ function App() {
           await db.exercises.update(
             partner.id,
             {
-              archived: true,
+              archived:
+                true,
             }
           );
         }
       }
     }
 
-    setShowExerciseForm(false);
-    setEditingExerciseId(null);
+    setShowExerciseForm(
+      false
+    );
+
+    setEditingExerciseId(
+      null
+    );
 
     setExerciseForm({
       ...EMPTY_EXERCISE_FORM,
     });
   }
 
-  async function deleteExercise(exercise) {
+  async function deleteExercise(
+    exercise
+  ) {
     const confirmed =
       window.confirm(
         `Remove "${exercise.name}"?\n\nPrevious workout history will remain.`
@@ -1804,10 +2586,12 @@ function App() {
   }
 
   // ============================================================
-  // WORKOUT SETS
+  // WORKOUT SET CREATION
   // ============================================================
 
-  function createExerciseSets(exercise) {
+  function createExerciseSets(
+    exercise
+  ) {
     const previous =
       previousExerciseData
         ?.exerciseData?.[
@@ -1848,7 +2632,11 @@ function App() {
 
         rir:
           previousSet
-            ?.rir ?? "",
+            ?.rir === null ||
+          previousSet
+            ?.rir === undefined
+            ? ""
+            : previousSet.rir,
 
         completed: false,
       });
@@ -1857,8 +2645,14 @@ function App() {
     return result;
   }
 
+  // ============================================================
+  // START WORKOUT
+  // ============================================================
+
   async function startWorkout() {
-    if (pausedWorkout) {
+    if (
+      pausedWorkout
+    ) {
       const discard =
         window.confirm(
           `${
@@ -1875,16 +2669,16 @@ function App() {
         "activeWorkoutDraft"
       );
 
-      setPausedWorkout(null);
+      setPausedWorkout(
+        null
+      );
     }
 
     const initialSets = {};
 
-    const initialActiveIds =
-      [];
+    const initialActiveIds = [];
 
-    const initialAlternatives =
-      {};
+    const initialAlternatives = {};
 
     (
       exercises || []
@@ -1903,7 +2697,8 @@ function App() {
       new Set();
 
     (
-      orderedExercises || []
+      orderedExercises ||
+      []
     ).forEach(
       (exercise) => {
         if (
@@ -1933,7 +2728,8 @@ function App() {
             [...group]
               .map(
                 (item) => ({
-                  exercise: item,
+                  exercise:
+                    item,
 
                   date:
                     previousExerciseData
@@ -2034,7 +2830,8 @@ function App() {
       key:
         "activeWorkoutDraft",
 
-      value: draft,
+      value:
+        draft,
     });
 
     setWorkoutStartedAt(
@@ -2073,6 +2870,10 @@ function App() {
       true
     );
   }
+
+  // ============================================================
+  // COMPLETION ORDER
+  // ============================================================
 
   function updateExerciseCompletionStatus(
     exerciseId,
@@ -2123,6 +2924,10 @@ function App() {
     );
   }
 
+  // ============================================================
+  // OPTIONAL / ALTERNATIVE EXERCISES
+  // ============================================================
+
   function selectAlternativeDuringWorkout(
     groupName,
     exerciseId
@@ -2161,7 +2966,9 @@ function App() {
     );
   }
 
-  function includeOptionalExercise(exerciseId) {
+  function includeOptionalExercise(
+    exerciseId
+  ) {
     setIncludedOptional(
       (previous) => ({
         ...previous,
@@ -2184,7 +2991,9 @@ function App() {
     );
   }
 
-  function skipOptionalExercise(exerciseId) {
+  function skipOptionalExercise(
+    exerciseId
+  ) {
     setIncludedOptional(
       (previous) => ({
         ...previous,
@@ -2204,12 +3013,21 @@ function App() {
     );
   }
 
+  // ============================================================
+  // SET EDITING
+  // ============================================================
+
   function updateSet(
     exerciseId,
     setIndex,
     field,
     value
   ) {
+    const safeValue =
+      normalizeDecimalInput(
+        value
+      );
+
     setWorkoutSets(
       (previous) => ({
         ...previous,
@@ -2225,8 +3043,9 @@ function App() {
               setIndex
                 ? {
                     ...set,
+
                     [field]:
-                      value,
+                      safeValue,
                   }
                 : set
           ),
@@ -2252,13 +3071,21 @@ function App() {
       return;
     }
 
+    const weight =
+      parseDecimal(
+        currentSet.weight
+      );
+
+    const reps =
+      parseDecimal(
+        currentSet.reps
+      );
+
     if (
       !currentSet.completed &&
       (
-        currentSet.weight ===
-          "" ||
-        currentSet.reps ===
-          ""
+        weight === null ||
+        reps === null
       )
     ) {
       alert(
@@ -2297,7 +3124,9 @@ function App() {
     );
   }
 
-  function addSet(exerciseId) {
+  function addSet(
+    exerciseId
+  ) {
     const currentSets =
       workoutSets[
         exerciseId
@@ -2353,7 +3182,9 @@ function App() {
       set.rir !== "" ||
       set.completed;
 
-    if (hasData) {
+    if (
+      hasData
+    ) {
       const confirmed =
         window.confirm(
           `Remove Set ${
@@ -2361,7 +3192,9 @@ function App() {
           }?\n\nThe values entered for this set will be removed from the current workout.`
         );
 
-      if (!confirmed) {
+      if (
+        !confirmed
+      ) {
         return;
       }
     }
@@ -2389,7 +3222,7 @@ function App() {
   }
 
   // ============================================================
-  // PAUSE VIA BACK
+  // PAUSE / RESUME
   // ============================================================
 
   function makeCurrentDraft() {
@@ -2431,7 +3264,8 @@ function App() {
       key:
         "activeWorkoutDraft",
 
-      value: draft,
+      value:
+        draft,
     });
 
     setPausedWorkout(
@@ -2468,7 +3302,9 @@ function App() {
   }
 
   async function resumeWorkout() {
-    if (!pausedWorkout) {
+    if (
+      !pausedWorkout
+    ) {
       return;
     }
 
@@ -2543,7 +3379,9 @@ function App() {
   }
 
   async function discardPausedWorkout() {
-    if (!pausedWorkout) {
+    if (
+      !pausedWorkout
+    ) {
       return;
     }
 
@@ -2555,7 +3393,9 @@ function App() {
         }?\n\nAll unfinished workout entries will be lost.`
       );
 
-    if (!confirmed) {
+    if (
+      !confirmed
+    ) {
       return;
     }
 
@@ -2563,13 +3403,31 @@ function App() {
       "activeWorkoutDraft"
     );
 
-    setPausedWorkout(null);
-    setWorkoutStartedAt(null);
+    setPausedWorkout(
+      null
+    );
+
+    setWorkoutStartedAt(
+      null
+    );
+
     setWorkoutSets({});
-    setActiveExerciseIds([]);
-    setSelectedAlternatives({});
-    setIncludedOptional({});
-    setExerciseCompletionOrder([]);
+
+    setActiveExerciseIds(
+      []
+    );
+
+    setSelectedAlternatives(
+      {}
+    );
+
+    setIncludedOptional(
+      {}
+    );
+
+    setExerciseCompletionOrder(
+      []
+    );
   }
 
   // ============================================================
@@ -2577,17 +3435,16 @@ function App() {
   // ============================================================
 
   async function finishWorkout() {
-    const completedSets =
-      [];
+    const completedSets = [];
 
-    const skippedExerciseIds =
-      [];
+    const skippedExerciseIds = [];
 
     const handledGroups =
       new Set();
 
     (
-      orderedExercises || []
+      orderedExercises ||
+      []
     ).forEach(
       (exercise) => {
         if (
@@ -2610,7 +3467,9 @@ function App() {
               exercise.alternativeGroup
             );
 
-          if (!selectedId) {
+          if (
+            !selectedId
+          ) {
             return;
           }
 
@@ -2640,35 +3499,34 @@ function App() {
                   set
                 );
 
-              completedSets.push({
-                exerciseId:
-                  selectedId,
+              completedSets.push(
+                {
+                  exerciseId:
+                    selectedId,
 
-                setNumber:
-                  originalIndex +
-                  1,
+                  setNumber:
+                    originalIndex +
+                    1,
 
-                setType:
-                  "working",
+                  setType:
+                    "working",
 
-                weight:
-                  Number(
-                    set.weight
-                  ),
+                  weight:
+                    parseDecimal(
+                      set.weight
+                    ),
 
-                reps:
-                  Number(
-                    set.reps
-                  ),
+                  reps:
+                    parseDecimal(
+                      set.reps
+                    ),
 
-                rir:
-                  set.rir ===
-                  ""
-                    ? null
-                    : Number(
-                        set.rir
-                      ),
-              });
+                  rir:
+                    getRIRValue(
+                      set.rir
+                    ),
+                }
+              );
             }
           );
 
@@ -2714,35 +3572,34 @@ function App() {
                 set
               );
 
-            completedSets.push({
-              exerciseId:
-                exercise.id,
+            completedSets.push(
+              {
+                exerciseId:
+                  exercise.id,
 
-              setNumber:
-                originalIndex +
-                1,
+                setNumber:
+                  originalIndex +
+                  1,
 
-              setType:
-                "working",
+                setType:
+                  "working",
 
-              weight:
-                Number(
-                  set.weight
-                ),
+                weight:
+                  parseDecimal(
+                    set.weight
+                  ),
 
-              reps:
-                Number(
-                  set.reps
-                ),
+                reps:
+                  parseDecimal(
+                    set.reps
+                  ),
 
-              rir:
-                set.rir ===
-                ""
-                  ? null
-                  : Number(
-                      set.rir
-                    ),
-            });
+                rir:
+                  getRIRValue(
+                    set.rir
+                  ),
+              }
+            );
           }
         );
       }
@@ -2753,7 +3610,9 @@ function App() {
         `Complete this workout?\n\nCompleted sets: ${completedSets.length}\nSkipped exercises: ${skippedExerciseIds.length}\n\nOnly checked sets will be saved as performed.`
       );
 
-    if (!confirmed) {
+    if (
+      !confirmed
+    ) {
       return;
     }
 
@@ -2773,24 +3632,26 @@ function App() {
       ];
 
     const sessionId =
-      await db.sessions.add({
-        workoutDayId:
-          selectedDayId,
+      await db.sessions.add(
+        {
+          workoutDayId:
+            selectedDayId,
 
-        date:
-          new Date().toISOString(),
+          date:
+            new Date().toISOString(),
 
-        startedAt:
-          workoutStartedAt,
+          startedAt:
+            workoutStartedAt,
 
-        skippedExerciseIds,
+          skippedExerciseIds,
 
-        completedSetCount:
-          completedSets.length,
+          completedSetCount:
+            completedSets.length,
 
-        exerciseOrderKeys:
-          finalExerciseOrder,
-      });
+          exerciseOrderKeys:
+            finalExerciseOrder,
+        }
+      );
 
     if (
       completedSets.length
@@ -2809,18 +3670,51 @@ function App() {
       "activeWorkoutDraft"
     );
 
-    setPausedWorkout(null);
-    setActiveWorkout(false);
-    setWorkoutStartedAt(null);
-    setWorkoutProgressOpen(false);
+    setPausedWorkout(
+      null
+    );
+
+    setActiveWorkout(
+      false
+    );
+
+    setWorkoutStartedAt(
+      null
+    );
+
+    setWorkoutProgressOpen(
+      false
+    );
+
     setWorkoutSets({});
-    setActiveExerciseIds([]);
-    setSelectedAlternatives({});
-    setIncludedOptional({});
-    setExerciseCompletionOrder([]);
-    setSelectedDayId(null);
-    setSelectedSplitId(null);
-    setActiveTab("history");
+
+    setActiveExerciseIds(
+      []
+    );
+
+    setSelectedAlternatives(
+      {}
+    );
+
+    setIncludedOptional(
+      {}
+    );
+
+    setExerciseCompletionOrder(
+      []
+    );
+
+    setSelectedDayId(
+      null
+    );
+
+    setSelectedSplitId(
+      null
+    );
+
+    setActiveTab(
+      "history"
+    );
 
     alert(
       "Workout completed and saved."
@@ -2828,7 +3722,7 @@ function App() {
   }
 
   // ============================================================
-  // PROGRESS FROM WORKOUT
+  // PROGRESS FROM ACTIVE WORKOUT
   // ============================================================
 
   function openWorkoutExerciseProgress(
@@ -2853,6 +3747,93 @@ function App() {
     );
   }
 
+  function openHistoryExerciseProgress(
+    exerciseName
+  ) {
+    setHistoryProgressReturn({
+      sessionId:
+        selectedHistorySessionId,
+      scrollY:
+        window.scrollY,
+    });
+
+    setSelectedHistorySessionId(
+      null
+    );
+
+    setSelectedSplitId(
+      null
+    );
+
+    setSelectedDayId(
+      null
+    );
+
+    setWorkoutProgressOpen(
+      false
+    );
+
+    setSelectedProgressExercise(
+      exerciseName
+    );
+
+    setProgressSearch(
+      exerciseName
+    );
+
+    setActiveTab(
+      "progress"
+    );
+  }
+
+  function closeHistoryExerciseProgress() {
+    const returnState =
+      historyProgressReturn;
+
+    if (!returnState?.sessionId) {
+      setActiveTab(
+        "history"
+      );
+
+      setHistoryProgressReturn(
+        null
+      );
+
+      return;
+    }
+
+    setActiveTab(
+      "history"
+    );
+
+    setSelectedProgressExercise(
+      ""
+    );
+
+    setProgressSearch(
+      ""
+    );
+
+    setSelectedHistorySessionId(
+      returnState.sessionId
+    );
+
+    setHistoryProgressReturn(
+      null
+    );
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.scrollTo({
+          top:
+            returnState.scrollY || 0,
+          behavior:
+            "auto",
+        });
+      });
+    });
+  }
+
   // ============================================================
   // BACKUP
   // ============================================================
@@ -2861,7 +3842,8 @@ function App() {
     event
   ) {
     const file =
-      event.target.files?.[0];
+      event.target
+        .files?.[0];
 
     if (!file) {
       return;
@@ -2875,6 +3857,7 @@ function App() {
     if (!confirmed) {
       event.target.value =
         "";
+
       return;
     }
 
@@ -2903,14 +3886,25 @@ function App() {
   // ============================================================
 
   function switchTab(tab) {
-    if (activeWorkout) {
+    if (
+      activeWorkout
+    ) {
       return;
     }
 
     setActiveTab(tab);
-    setSelectedSplitId(null);
-    setSelectedDayId(null);
-    setSelectedHistorySessionId(null);
+
+    setSelectedSplitId(
+      null
+    );
+
+    setSelectedDayId(
+      null
+    );
+
+    setSelectedHistorySessionId(
+      null
+    );
   }
 
   function renderBottomNav() {
@@ -2918,12 +3912,15 @@ function App() {
       <nav className="bottom-nav">
         <button
           className={
-            activeTab === "home"
+            activeTab ===
+            "home"
               ? "active"
               : ""
           }
           onClick={() =>
-            switchTab("home")
+            switchTab(
+              "home"
+            )
           }
         >
           Home
@@ -2931,12 +3928,15 @@ function App() {
 
         <button
           className={
-            activeTab === "history"
+            activeTab ===
+            "history"
               ? "active"
               : ""
           }
           onClick={() =>
-            switchTab("history")
+            switchTab(
+              "history"
+            )
           }
         >
           History
@@ -2944,7 +3944,8 @@ function App() {
 
         <button
           className={
-            activeTab === "progress"
+            activeTab ===
+            "progress"
               ? "active"
               : ""
           }
@@ -2959,7 +3960,8 @@ function App() {
 
         <button
           className={
-            activeTab === "settings"
+            activeTab ===
+            "settings"
               ? "active"
               : ""
           }
@@ -2976,14 +3978,15 @@ function App() {
   }
 
   // ============================================================
-  // RESUME BANNER — HOME ONLY
+  // RESUME BANNER
   // ============================================================
 
   function renderPausedWorkoutBanner() {
     if (
       !pausedWorkout ||
       activeWorkout ||
-      activeTab !== "home" ||
+      activeTab !==
+        "home" ||
       selectedSplitId ||
       selectedDayId
     ) {
@@ -3034,11 +4037,13 @@ function App() {
   }
 
   // ============================================================
-  // FORMS
+  // SPLIT FORM
   // ============================================================
 
   function renderSplitForm() {
-    if (!showSplitForm) {
+    if (
+      !showSplitForm
+    ) {
       return null;
     }
 
@@ -3057,11 +4062,16 @@ function App() {
 
           <input
             className="form-input"
-            value={splitName}
+            value={
+              splitName
+            }
             placeholder="e.g. Push Pull Legs"
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               setSplitName(
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
@@ -3070,8 +4080,13 @@ function App() {
             <button
               className="secondary-form-button"
               onClick={() => {
-                setShowSplitForm(false);
-                setEditingSplitId(null);
+                setShowSplitForm(
+                  false
+                );
+
+                setEditingSplitId(
+                  null
+                );
               }}
             >
               Cancel
@@ -3091,8 +4106,14 @@ function App() {
     );
   }
 
+  // ============================================================
+  // DAY FORM
+  // ============================================================
+
   function renderDayForm() {
-    if (!showDayForm) {
+    if (
+      !showDayForm
+    ) {
       return null;
     }
 
@@ -3111,11 +4132,16 @@ function App() {
 
           <input
             className="form-input"
-            value={dayName}
+            value={
+              dayName
+            }
             placeholder="e.g. Push A"
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               setDayName(
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
@@ -3126,10 +4152,15 @@ function App() {
 
           <select
             className="form-input"
-            value={dayOfWeek}
-            onChange={(event) =>
+            value={
+              dayOfWeek
+            }
+            onChange={(
+              event
+            ) =>
               setDayOfWeek(
-                event.target.value
+                event.target
+                  .value
               )
             }
           >
@@ -3137,21 +4168,46 @@ function App() {
               No fixed day
             </option>
 
-            <option>Monday</option>
-            <option>Tuesday</option>
-            <option>Wednesday</option>
-            <option>Thursday</option>
-            <option>Friday</option>
-            <option>Saturday</option>
-            <option>Sunday</option>
+            <option>
+              Monday
+            </option>
+
+            <option>
+              Tuesday
+            </option>
+
+            <option>
+              Wednesday
+            </option>
+
+            <option>
+              Thursday
+            </option>
+
+            <option>
+              Friday
+            </option>
+
+            <option>
+              Saturday
+            </option>
+
+            <option>
+              Sunday
+            </option>
           </select>
 
           <div className="form-actions">
             <button
               className="secondary-form-button"
               onClick={() => {
-                setShowDayForm(false);
-                setEditingDayId(null);
+                setShowDayForm(
+                  false
+                );
+
+                setEditingDayId(
+                  null
+                );
               }}
             >
               Cancel
@@ -3171,6 +4227,10 @@ function App() {
     );
   }
 
+  // ============================================================
+  // EXERCISE FORM
+  // ============================================================
+
   function renderExerciseForm() {
     if (
       !showExerciseForm
@@ -3185,7 +4245,9 @@ function App() {
       setExerciseForm(
         (previous) => ({
           ...previous,
-          [field]: value,
+
+          [field]:
+            value,
         })
       );
     }
@@ -3208,10 +4270,13 @@ function App() {
             value={
               exerciseForm.name
             }
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               change(
                 "name",
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
@@ -3229,10 +4294,13 @@ function App() {
                 value={
                   exerciseForm.targetSets
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   change(
                     "targetSets",
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -3250,10 +4318,13 @@ function App() {
                 value={
                   exerciseForm.warmupSets
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   change(
                     "warmupSets",
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -3271,10 +4342,13 @@ function App() {
                 value={
                   exerciseForm.minReps
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   change(
                     "minReps",
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -3292,10 +4366,13 @@ function App() {
                 value={
                   exerciseForm.maxReps
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   change(
                     "maxReps",
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -3311,10 +4388,13 @@ function App() {
             value={
               exerciseForm.targetRIR
             }
-            onChange={(event) =>
+            onChange={(
+              event
+            ) =>
               change(
                 "targetRIR",
-                event.target.value
+                event.target
+                  .value
               )
             }
           />
@@ -3325,10 +4405,13 @@ function App() {
               checked={
                 exerciseForm.optional
               }
-              onChange={(event) =>
+              onChange={(
+                event
+              ) =>
                 change(
                   "optional",
-                  event.target.checked
+                  event.target
+                    .checked
                 )
               }
             />
@@ -3344,10 +4427,13 @@ function App() {
               checked={
                 exerciseForm.hasAlternative
               }
-              onChange={(event) =>
+              onChange={(
+                event
+              ) =>
                 change(
                   "hasAlternative",
-                  event.target.checked
+                  event.target
+                    .checked
                 )
               }
             />
@@ -3368,10 +4454,13 @@ function App() {
                 value={
                   exerciseForm.alternativeName
                 }
-                onChange={(event) =>
+                onChange={(
+                  event
+                ) =>
                   change(
                     "alternativeName",
-                    event.target.value
+                    event.target
+                      .value
                   )
                 }
               />
@@ -3382,8 +4471,13 @@ function App() {
             <button
               className="secondary-form-button"
               onClick={() => {
-                setShowExerciseForm(false);
-                setEditingExerciseId(null);
+                setShowExerciseForm(
+                  false
+                );
+
+                setEditingExerciseId(
+                  null
+                );
               }}
             >
               Cancel
@@ -3504,7 +4598,9 @@ function App() {
 
                     <div className="workout-alternative-picker">
                       {group.map(
-                        (option) => (
+                        (
+                          option
+                        ) => (
                           <button
                             key={
                               option.id
@@ -3576,7 +4672,9 @@ function App() {
                       exercise.id
                     ];
 
-                if (!included) {
+                if (
+                  !included
+                ) {
                   return (
                     <div
                       className="exercise-card optional-during-workout-card"
@@ -3786,6 +4884,17 @@ function App() {
           {}
       ).map(Number);
 
+    const comparisonMap = new Map(
+      (
+        selectedHistorySummary
+          ?.exerciseComparisons ||
+        []
+      ).map((comparison) => [
+        comparison.exerciseId,
+        comparison,
+      ])
+    );
+
     const relevantExercises =
       (
         selectedHistorySession
@@ -3806,6 +4915,18 @@ function App() {
             Number(a.order) -
             Number(b.order)
         );
+
+    const summaryOverall =
+      selectedHistorySummary
+        ?.overallPercentage;
+
+    const summaryOverallStatus =
+      summaryOverall === null ||
+      summaryOverall === undefined
+        ? "baseline"
+        : getProgressStatus(
+            summaryOverall
+          );
 
     return (
       <div className="app app-with-fixed-back">
@@ -3845,79 +4966,176 @@ function App() {
           </div>
         </header>
 
+        {selectedHistorySummary && (
+          <section className="history-progress-summary-card">
+            {selectedHistorySummary.comparableCount > 0 ? (
+              <>
+                <div className="history-progress-summary-top">
+                  <span>OVERALL PROGRESSION</span>
+
+                  <strong
+                    className={`history-overall-${summaryOverallStatus}`}
+                  >
+                    {formatProgressPercentage(
+                      summaryOverall
+                    )}
+                  </strong>
+                </div>
+
+                <div className="history-progress-counts">
+                  <span className="history-count-improved">
+                    {selectedHistorySummary.improved} improved
+                  </span>
+
+                  <span className="history-count-same">
+                    {selectedHistorySummary.same} same
+                  </span>
+
+                  <span className="history-count-regressed">
+                    {selectedHistorySummary.regressed} regressed
+                  </span>
+
+                  {selectedHistorySummary.newCount > 0 && (
+                    <span className="history-count-new">
+                      {selectedHistorySummary.newCount} new
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="history-progress-summary-top">
+                  <span>OVERALL PROGRESSION</span>
+                  <strong className="history-overall-baseline">
+                    Baseline
+                  </strong>
+                </div>
+
+                <p className="history-baseline-copy">
+                  This is the first recorded performance for these exercises, so there is no earlier workout to compare against yet.
+                </p>
+              </>
+            )}
+          </section>
+        )}
+
         <section className="exercise-list">
           {relevantExercises.map(
             (exercise) => {
               const sets =
                 selectedHistorySession
-                  .sets[
-                    exercise.id
-                  ] || [];
+                  .sets[exercise.id] ||
+                [];
 
               const skipped =
                 skippedIds.includes(
                   exercise.id
                 );
 
+              const comparison =
+                comparisonMap.get(
+                  exercise.id
+                );
+
+              const status = skipped
+                ? "skipped"
+                : comparison?.status ||
+                  (sets.length > 0
+                    ? "new"
+                    : "skipped");
+
               return (
                 <div
-                  className="exercise-card"
-                  key={
-                    exercise.id
-                  }
+                  className="exercise-card history-exercise-progress-card"
+                  key={exercise.id}
                 >
-                  <h3>
-                    {
-                      exercise.name
-                    }
-                  </h3>
+                  <div className="history-exercise-progress-top">
+                    <div>
+                      <h3>
+                        {exercise.name}
+                      </h3>
 
-                  {skipped &&
-                    sets.length ===
-                      0 && (
-                      <div className="history-skipped-label">
-                        Skipped
-                      </div>
-                    )}
+                      {status === "improved" && (
+                        <div className="history-exercise-status improved">
+                          ↑ Improved {formatProgressPercentage(
+                            comparison.percentageChange
+                          )}
+                        </div>
+                      )}
 
-                  {sets.length >
-                    0 && (
+                      {status === "same" && (
+                        <div className="history-exercise-status same">
+                          = Same
+                        </div>
+                      )}
+
+                      {status === "regressed" && (
+                        <div className="history-exercise-status regressed">
+                          ↓ Regressed {formatProgressPercentage(
+                            comparison.percentageChange
+                          )}
+                        </div>
+                      )}
+
+                      {status === "new" && (
+                        <div className="history-exercise-status new">
+                          New baseline
+                        </div>
+                      )}
+
+                      {status === "skipped" && (
+                        <div className="history-exercise-status skipped">
+                          Skipped
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      className="exercise-progress-button history-progress-button"
+                      onClick={() =>
+                        openHistoryExerciseProgress(
+                          exercise.name
+                        )
+                      }
+                    >
+                      Progress
+                    </button>
+                  </div>
+
+                  {sets.length > 0 && (
                     <div className="history-set-list">
                       {sets.map(
                         (set) => (
                           <div
                             className="history-set-row"
-                            key={
-                              set.id
-                            }
+                            key={set.id}
                           >
                             <span>
-                              Set{" "}
-                              {
-                                set.setNumber
-                              }
+                              Set {set.setNumber}
                             </span>
 
                             <strong>
-                              {
-                                set.weight
-                              }{" "}
-                              kg ×{" "}
-                              {
-                                set.reps
-                              }
+                              {set.weight} kg × {set.reps}
                             </strong>
 
                             <span>
-                              {set.rir ===
-                              null
-                                ? "—"
-                                : `${set.rir} RIR`}
+                              {getRIRValue(
+                                set.rir
+                              )}{" "}
+                              RIR
                             </span>
                           </div>
                         )
                       )}
                     </div>
+                  )}
+
+                  {comparison?.previousDate && (
+                    <p className="history-compared-against">
+                      Compared with last performed {formatDate(
+                        comparison.previousDate
+                      )}
+                    </p>
                   )}
                 </div>
               );
@@ -4021,10 +5239,14 @@ function App() {
                     <h3>
                       {group
                         .map(
-                          (option) =>
+                          (
+                            option
+                          ) =>
                             option.name
                         )
-                        .join(" / ")}
+                        .join(
+                          " / "
+                        )}
                     </h3>
 
                     <p className="exercise-target">
@@ -4102,7 +5324,8 @@ function App() {
                         warmup set
                         {Number(
                           exercise.warmupSets
-                        ) === 1
+                        ) ===
+                        1
                           ? ""
                           : "s"}
                       </span>
@@ -4169,7 +5392,8 @@ function App() {
   // ============================================================
 
   if (
-    activeTab === "home" &&
+    activeTab ===
+      "home" &&
     selectedSplitId
   ) {
     return (
@@ -4285,7 +5509,8 @@ function App() {
   // ============================================================
 
   if (
-    activeTab === "history"
+    activeTab ===
+    "history"
   ) {
     const months = [
       "January",
@@ -4320,9 +5545,7 @@ function App() {
           <input
             className="history-search"
             placeholder="Search workouts..."
-            value={
-              historySearch
-            }
+            value={historySearch}
             onChange={(event) =>
               setHistorySearch(
                 event.target.value
@@ -4332,9 +5555,7 @@ function App() {
 
           <div className="history-filter-row">
             <select
-              value={
-                historyMonth
-              }
+              value={historyMonth}
               onChange={(event) =>
                 setHistoryMonth(
                   event.target.value
@@ -4345,29 +5566,18 @@ function App() {
                 All months
               </option>
 
-              {months.map(
-                (
-                  month,
-                  index
-                ) => (
-                  <option
-                    key={
-                      month
-                    }
-                    value={
-                      index
-                    }
-                  >
-                    {month}
-                  </option>
-                )
-              )}
+              {months.map((month, index) => (
+                <option
+                  key={month}
+                  value={index}
+                >
+                  {month}
+                </option>
+              ))}
             </select>
 
             <select
-              value={
-                historyYear
-              }
+              value={historyYear}
               onChange={(event) =>
                 setHistoryYear(
                   event.target.value
@@ -4378,73 +5588,127 @@ function App() {
                 All years
               </option>
 
-              {historyYears.map(
-                (year) => (
-                  <option
-                    key={
-                      year
-                    }
-                    value={
-                      year
-                    }
-                  >
-                    {year}
-                  </option>
-                )
-              )}
+              {historyYears.map((year) => (
+                <option
+                  key={year}
+                  value={year}
+                >
+                  {year}
+                </option>
+              ))}
             </select>
           </div>
         </section>
 
         <p className="history-count">
-          {
-            filteredHistorySessions.length
-          }{" "}
-          {filteredHistorySessions.length ===
-          1
+          {filteredHistorySessions.length}{" "}
+          {filteredHistorySessions.length === 1
             ? "workout"
             : "workouts"}
         </p>
 
         <div className="session-list">
-          {filteredHistorySessions.map(
-            (session) => (
+          {filteredHistorySessions.map((session) => {
+            const summary =
+              session.progressSummary;
+
+            const hasComparison =
+              summary?.comparableCount > 0;
+
+            const overallStatus =
+              hasComparison
+                ? getProgressStatus(
+                    summary.overallPercentage
+                  )
+                : "baseline";
+
+            return (
               <button
-                className="session-card workout-day-button"
-                key={
-                  session.id
-                }
+                className="session-card workout-day-button history-workout-summary-card"
+                key={session.id}
                 onClick={() =>
                   setSelectedHistorySessionId(
                     session.id
                   )
                 }
               >
-                <div>
-                  <strong>
-                    {session
-                      .workoutDay
-                      ?.name ||
-                      "Archived Workout"}
-                  </strong>
+                <div className="history-workout-card-content">
+                  <div className="history-workout-card-heading">
+                    <div>
+                      <strong>
+                        {session.workoutDay?.name ||
+                          "Archived Workout"}
+                      </strong>
 
-                  <p>
-                    {formatDate(
-                      session.date
-                    )}
-                  </p>
+                      <p>
+                        {formatDate(session.date)}
+                      </p>
+                    </div>
+
+                    <span className="history-card-chevron">
+                      ›
+                    </span>
+                  </div>
+
+                  {hasComparison ? (
+                    <div className="history-card-progress">
+                      <strong
+                        className={`history-card-overall history-overall-${overallStatus}`}
+                      >
+                        {overallStatus === "improved"
+                          ? "↑ "
+                          : overallStatus === "regressed"
+                          ? "↓ "
+                          : "= "}
+                        {formatProgressPercentage(
+                          summary.overallPercentage
+                        )}{" "}
+                        overall
+                      </strong>
+
+                      <div className="history-card-counts">
+                        <span className="history-count-improved">
+                          {summary.improved} improved
+                        </span>
+
+                        <span className="history-count-same">
+                          {summary.same} same
+                        </span>
+
+                        <span className="history-count-regressed">
+                          {summary.regressed} regressed
+                        </span>
+
+                        {summary.newCount > 0 && (
+                          <span className="history-count-new">
+                            {summary.newCount} new
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="history-card-progress baseline">
+                      <strong className="history-card-overall history-overall-baseline">
+                        Baseline workout
+                      </strong>
+
+                      {summary?.newCount > 0 && (
+                        <div className="history-card-counts">
+                          <span className="history-count-new">
+                            {summary.newCount} new baseline
+                            {summary.newCount === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-
-                <span>
-                  ›
-                </span>
               </button>
-            )
-          )}
+            );
+          })}
         </div>
 
-        {filteredHistorySessions.length ===
-          0 && (
+        {filteredHistorySessions.length === 0 && (
           <div className="empty-history">
             <strong>
               No workouts found
@@ -4490,7 +5754,8 @@ function App() {
     return (
       <div
         className={`app ${
-          workoutProgressOpen
+          workoutProgressOpen ||
+          historyProgressReturn
             ? "app-with-fixed-back"
             : ""
         }`}
@@ -4506,10 +5771,22 @@ function App() {
           </button>
         )}
 
+        {historyProgressReturn && (
+          <button
+            className="back-button history-progress-back"
+            onClick={
+              closeHistoryExerciseProgress
+            }
+          >
+            ← History
+          </button>
+        )}
+
         <header className="topbar">
           <div>
             <p className="eyebrow">
-              {workoutProgressOpen
+              {workoutProgressOpen ||
+              historyProgressReturn
                 ? "EXERCISE PROGRESS"
                 : "WBX WORKOUT PLANNER"}
             </p>
@@ -4531,13 +5808,17 @@ function App() {
             value={
               progressSearch
             }
-            onChange={(event) => {
+            onChange={(
+              event
+            ) => {
               setProgressSearch(
-                event.target.value
+                event.target
+                  .value
               );
 
               if (
-                event.target.value !==
+                event.target
+                  .value !==
                 selectedProgressExercise
               ) {
                 setSelectedProgressExercise(
@@ -4569,9 +5850,7 @@ function App() {
                       }}
                     >
                       <span>
-                        {
-                          name
-                        }
+                        {name}
                       </span>
 
                       <span>
@@ -4585,15 +5864,166 @@ function App() {
         </section>
 
         {!selectedProgressExercise && (
-          <div className="empty-history">
-            <strong>
-              Search for an exercise
-            </strong>
+          <>
+            <section className="overall-body-progress-section">
+              <div className="overall-body-progress-heading">
+                <div>
+                  <p className="eyebrow">MONTH TO MONTH</p>
+                  <h2>Overall Progression</h2>
+                </div>
 
-            <p>
-              Select an exercise to view your long-term progress.
-            </p>
-          </div>
+                <p>
+                  RIR-adjusted monthly performance compared with the
+                  previous calendar month.
+                </p>
+              </div>
+
+              {["upper", "lower"].map((bodyType) => {
+                const bodyData = monthlyBodyProgress?.[bodyType];
+                const latest = bodyData?.latest;
+                const bodyLabel =
+                  bodyType === "upper"
+                    ? "Upper Body"
+                    : "Lower Body";
+
+                const latestStatus = latest
+                  ? getProgressStatus(latest.percentage)
+                  : "baseline";
+
+                return (
+                  <div
+                    className={`body-progress-card ${latestStatus}`}
+                    key={bodyType}
+                  >
+                    <div className="body-progress-card-top">
+                      <div>
+                        <span className="body-progress-label">
+                          {bodyLabel.toUpperCase()}
+                        </span>
+
+                        {latest ? (
+                          <>
+                            <strong
+                              className={`body-progress-percentage ${latestStatus}`}
+                            >
+                              {formatProgressPercentage(latest.percentage)}
+                            </strong>
+
+                            <p>
+                              {latest.monthLabel} vs previous month
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <strong className="body-progress-percentage baseline">
+                              Baseline
+                            </strong>
+
+                            <p>
+                              Complete comparable workouts in two consecutive months.
+                            </p>
+                          </>
+                        )}
+                      </div>
+
+                      {latest && (
+                        <div className={`body-progress-direction ${latestStatus}`}>
+                          {latestStatus === "improved"
+                            ? "↑"
+                            : latestStatus === "regressed"
+                            ? "↓"
+                            : "="}
+                        </div>
+                      )}
+                    </div>
+
+                    {latest && (
+                      <div className="body-progress-comparable-count">
+                        {latest.comparableExercises} comparable exercise
+                        {latest.comparableExercises === 1 ? "" : "s"}
+                      </div>
+                    )}
+
+                    {bodyData?.chartData?.length > 0 ? (
+                      <div className="body-progress-chart">
+                        <ResponsiveContainer width="100%" height={220}>
+                          <BarChart
+                            data={bodyData.chartData}
+                            margin={{
+                              top: 18,
+                              right: 8,
+                              left: -18,
+                              bottom: 0,
+                            }}
+                          >
+                            <XAxis
+                              dataKey="month"
+                              tick={{ fontSize: 11 }}
+                              axisLine={false}
+                              tickLine={false}
+                            />
+
+                            <YAxis
+                              tick={{ fontSize: 11 }}
+                              axisLine={false}
+                              tickLine={false}
+                              tickFormatter={(value) => `${value}%`}
+                            />
+
+                            <Tooltip
+                              formatter={(value) => [
+                                `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%`,
+                                "Overall progression",
+                              ]}
+                            />
+
+                            <ReferenceLine
+                              y={0}
+                              stroke="rgba(255,255,255,.18)"
+                            />
+
+                            <Bar
+                              dataKey="percentage"
+                              radius={[6, 6, 6, 6]}
+                              maxBarSize={42}
+                            >
+                              {bodyData.chartData.map((entry, index) => (
+                                <Cell
+                                  key={`${bodyType}-${entry.month}-${index}`}
+                                  fill={
+                                    entry.percentage > 0.05
+                                      ? "#57d38c"
+                                      : entry.percentage < -0.05
+                                      ? "#ff6f73"
+                                      : "#8f93a2"
+                                  }
+                                />
+                              ))}
+                            </Bar>
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <div className="body-progress-no-chart">
+                        <strong>Not enough monthly data yet</strong>
+                        <p>
+                          The graph will appear once the same exercise has
+                          comparable performances in consecutive months.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+
+            <div className="progress-search-hint">
+              <strong>Individual exercise progress</strong>
+              <p>
+                Search above to open the detailed history and graph for a specific exercise.
+              </p>
+            </div>
+          </>
         )}
 
         {selectedProgressExercise &&
@@ -4630,7 +6060,7 @@ function App() {
 
                 <div className="stat-card">
                   <span>
-                    Estimated 1RM
+                    RIR-adjusted 1RM
                   </span>
 
                   <strong>
@@ -4693,7 +6123,9 @@ function App() {
                 <div className="chart-container">
                   <ResponsiveContainer
                     width="100%"
-                    height={240}
+                    height={
+                      240
+                    }
                   >
                     <LineChart
                       data={
@@ -4732,7 +6164,9 @@ function App() {
                   {[...progressData.sessions]
                     .reverse()
                     .map(
-                      (session) => (
+                      (
+                        session
+                      ) => (
                         <div
                           className="progress-session-card"
                           key={
@@ -4757,7 +6191,9 @@ function App() {
 
                           <div className="progress-session-sets">
                             {session.sets.map(
-                              (set) => (
+                              (
+                                set
+                              ) => (
                                 <div
                                   className="progress-set-row"
                                   key={
@@ -4782,10 +6218,10 @@ function App() {
                                   </strong>
 
                                   <span>
-                                    {set.rir ===
-                                    null
-                                      ? ""
-                                      : `${set.rir} RIR`}
+                                    {getRIRValue(
+                                      set.rir
+                                    )}{" "}
+                                    RIR
                                   </span>
                                 </div>
                               )
@@ -4800,6 +6236,7 @@ function App() {
           )}
 
         {!workoutProgressOpen &&
+          !historyProgressReturn &&
           renderBottomNav()}
       </div>
     );
@@ -5156,10 +6593,10 @@ function ExerciseWorkoutCard({
                   </strong>
 
                   <span>
-                    {set.rir ===
-                    null
-                      ? ""
-                      : `${set.rir} RIR`}
+                    {getRIRValue(
+                      set.rir
+                    )}{" "}
+                    RIR
                   </span>
                 </div>
               )
@@ -5251,65 +6688,76 @@ function WorkoutSetRows({
             >
               <div className="set-row set-row-six">
                 <span className="set-number">
-                  {index + 1}
+                  {index +
+                    1}
                 </span>
 
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.5"
+                  autoComplete="off"
                   value={
                     set.weight
                   }
                   disabled={
                     set.completed
                   }
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     updateSet(
                       exercise.id,
                       index,
                       "weight",
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                 />
 
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.5"
+                  autoComplete="off"
                   value={
                     set.reps
                   }
                   disabled={
                     set.completed
                   }
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     updateSet(
                       exercise.id,
                       index,
                       "reps",
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                 />
 
                 <input
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.5"
+                  autoComplete="off"
                   value={
                     set.rir
                   }
+                  placeholder="0"
                   disabled={
                     set.completed
                   }
-                  onChange={(event) =>
+                  onChange={(
+                    event
+                  ) =>
                     updateSet(
                       exercise.id,
                       index,
                       "rir",
-                      event.target.value
+                      event.target
+                        .value
                     )
                   }
                 />

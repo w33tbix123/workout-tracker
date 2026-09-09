@@ -2985,3 +2985,760 @@ button:disabled {
     max-height: 100px;
   }
 }
+
+/* ============================================================
+   HISTORY WORKOUT PROGRESSION
+   Append this block to the END of src/App.css
+   ============================================================ */
+
+.history-workout-summary-card {
+  align-items: stretch;
+  text-align: left;
+}
+
+.history-workout-card-content {
+  width: 100%;
+}
+
+.history-workout-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  width: 100%;
+}
+
+.history-card-chevron {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+  font-size: 22px;
+  line-height: 1;
+}
+
+.history-card-progress {
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.history-card-progress.baseline {
+  padding-top: 11px;
+}
+
+.history-card-overall {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 820;
+  letter-spacing: -0.01em;
+}
+
+.history-card-counts,
+.history-progress-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.history-count-improved,
+.history-overall-improved,
+.history-exercise-status.improved {
+  color: #73d39a;
+}
+
+.history-count-regressed,
+.history-overall-regressed,
+.history-exercise-status.regressed {
+  color: #ef8278;
+}
+
+.history-count-same,
+.history-overall-same,
+.history-exercise-status.same {
+  color: var(--text-soft);
+}
+
+.history-count-new,
+.history-overall-baseline,
+.history-exercise-status.new {
+  color: #d6b7ff;
+}
+
+.history-exercise-status.skipped {
+  color: #d4ae69;
+}
+
+.history-progress-summary-card {
+  margin: 0 0 16px;
+  padding: 16px;
+  border: 1px solid rgba(239, 130, 120, 0.13);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(239, 130, 120, 0.1), transparent 34%),
+    rgba(18, 18, 24, 0.94);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+.history-progress-summary-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+
+.history-progress-summary-top > span {
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.history-progress-summary-top > strong {
+  font-size: 20px;
+  font-weight: 850;
+}
+
+.history-baseline-copy {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.history-exercise-progress-card {
+  position: relative;
+}
+
+.history-exercise-progress-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.history-exercise-progress-top h3 {
+  margin-bottom: 5px;
+}
+
+.history-exercise-status {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.history-progress-button {
+  flex: 0 0 auto;
+}
+
+.history-compared-against {
+  margin: 10px 0 0;
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+@media (max-width: 390px) {
+  .history-progress-summary-card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .history-progress-summary-top > strong {
+    font-size: 18px;
+  }
+
+  .history-card-counts,
+  .history-progress-counts {
+    gap: 5px 8px;
+    font-size: 10px;
+  }
+}
+
+/* ============================================================
+   HISTORY -> EXERCISE PROGRESS BACK BUTTON
+   ============================================================ */
+
+.history-progress-back-button {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: max(13px, calc(50% - 230px + 13px));
+  right: auto;
+
+  z-index: 550;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 38px;
+  padding: 0 13px;
+
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+
+  background: rgba(24, 24, 31, 0.88);
+  color: var(--text-soft);
+
+  font-size: 11px;
+  font-weight: 760;
+
+  cursor: pointer;
+
+  box-shadow: 0 7px 22px rgba(0, 0, 0, 0.3);
+
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.history-progress-back-button:active {
+  transform: scale(0.95);
+  background: rgba(239, 130, 120, 0.12);
+  color: var(--accent);
+}
+
+@media (max-width: 460px) {
+  .history-progress-back-button {
+    left: 13px;
+  }
+}
+
+/* ============================================================
+   OVERALL MONTHLY BODY PROGRESS
+   Add this to the bottom of src/App.css
+   ============================================================ */
+
+.overall-body-progress-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  padding-bottom: 18px;
+}
+
+.overall-body-progress-heading {
+  padding: 2px 2px 0;
+}
+
+.overall-body-progress-heading h2 {
+  margin: 3px 0 0;
+  font-size: 22px;
+}
+
+.overall-body-progress-heading > p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.monthly-body-progress-card {
+  overflow: hidden;
+  padding: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 45%),
+    rgba(18, 18, 24, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.monthly-body-progress-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monthly-body-progress-top > div {
+  min-width: 0;
+}
+
+.monthly-body-progress-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.monthly-body-progress-value {
+  display: block;
+  font-size: 24px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.monthly-body-progress-value.improved {
+  color: #5fd28a;
+}
+
+.monthly-body-progress-value.regressed {
+  color: #ff6b6b;
+}
+
+.monthly-body-progress-value.same,
+.monthly-body-progress-value.baseline {
+  color: var(--text);
+}
+
+.monthly-body-progress-top p {
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.monthly-body-progress-badge {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.monthly-body-progress-badge.improved {
+  border: 1px solid rgba(95, 210, 138, 0.2);
+  background: rgba(95, 210, 138, 0.1);
+  color: #5fd28a;
+}
+
+.monthly-body-progress-badge.regressed {
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+}
+
+.monthly-body-progress-badge.same {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+}
+
+.monthly-body-progress-chart {
+  width: 100%;
+  height: 220px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.monthly-body-progress-chart .recharts-cartesian-axis-tick-value {
+  fill: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+}
+
+.monthly-body-progress-chart .recharts-tooltip-wrapper {
+  outline: none;
+}
+
+.monthly-body-progress-empty {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.monthly-body-progress-empty strong {
+  display: block;
+  font-size: 12px;
+}
+
+.monthly-body-progress-empty p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 390px) {
+  .monthly-body-progress-card {
+    padding: 15px;
+    border-radius: 20px;
+  }
+
+  .monthly-body-progress-value {
+    font-size: 22px;
+  }
+
+  .monthly-body-progress-badge {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+}
+
+/* ============================================================
+   OVERALL MONTHLY BODY PROGRESS
+   Add this to the bottom of src/App.css
+   ============================================================ */
+
+.overall-body-progress-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  padding-bottom: 18px;
+}
+
+.overall-body-progress-heading {
+  padding: 2px 2px 0;
+}
+
+.overall-body-progress-heading h2 {
+  margin: 3px 0 0;
+  font-size: 22px;
+}
+
+.overall-body-progress-heading > p {
+  margin: 8px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.monthly-body-progress-card {
+  overflow: hidden;
+  padding: 17px;
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 22px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 45%),
+    rgba(18, 18, 24, 0.92);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+}
+
+.monthly-body-progress-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monthly-body-progress-top > div {
+  min-width: 0;
+}
+
+.monthly-body-progress-label {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.monthly-body-progress-value {
+  display: block;
+  font-size: 24px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+
+.monthly-body-progress-value.improved {
+  color: #5fd28a;
+}
+
+.monthly-body-progress-value.regressed {
+  color: #ff6b6b;
+}
+
+.monthly-body-progress-value.same,
+.monthly-body-progress-value.baseline {
+  color: var(--text);
+}
+
+.monthly-body-progress-top p {
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.monthly-body-progress-badge {
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.monthly-body-progress-badge.improved {
+  border: 1px solid rgba(95, 210, 138, 0.2);
+  background: rgba(95, 210, 138, 0.1);
+  color: #5fd28a;
+}
+
+.monthly-body-progress-badge.regressed {
+  border: 1px solid rgba(255, 107, 107, 0.2);
+  background: rgba(255, 107, 107, 0.1);
+  color: #ff6b6b;
+}
+
+.monthly-body-progress-badge.same {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-soft);
+}
+
+.monthly-body-progress-chart {
+  width: 100%;
+  height: 220px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.monthly-body-progress-chart .recharts-cartesian-axis-tick-value {
+  fill: rgba(255, 255, 255, 0.48);
+  font-size: 10px;
+}
+
+.monthly-body-progress-chart .recharts-tooltip-wrapper {
+  outline: none;
+}
+
+.monthly-body-progress-empty {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.monthly-body-progress-empty strong {
+  display: block;
+  font-size: 12px;
+}
+
+.monthly-body-progress-empty p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 390px) {
+  .monthly-body-progress-card {
+    padding: 15px;
+    border-radius: 20px;
+  }
+
+  .monthly-body-progress-value {
+    font-size: 22px;
+  }
+
+  .monthly-body-progress-badge {
+    padding: 6px 8px;
+    font-size: 9px;
+  }
+}
+
+/* ============================================================
+   OVERALL MONTHLY UPPER / LOWER PROGRESSION
+   ============================================================ */
+
+.overall-body-progress-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+  padding-bottom: 16px;
+}
+
+.overall-body-progress-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 2px;
+}
+
+.overall-body-progress-heading h2 {
+  margin: 3px 0 0;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.overall-body-progress-heading > p {
+  max-width: 210px;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.body-progress-card {
+  position: relative;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.025), transparent 48%),
+    rgba(18, 18, 24, 0.96);
+  box-shadow: 0 15px 36px rgba(0, 0, 0, 0.24);
+}
+
+.body-progress-card.improved {
+  border-color: rgba(87, 211, 140, 0.18);
+}
+
+.body-progress-card.regressed {
+  border-color: rgba(255, 111, 115, 0.18);
+}
+
+.body-progress-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.body-progress-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.body-progress-percentage {
+  display: block;
+  font-size: 30px;
+  font-weight: 850;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.body-progress-percentage.improved {
+  color: #57d38c;
+}
+
+.body-progress-percentage.regressed {
+  color: #ff6f73;
+}
+
+.body-progress-percentage.same,
+.body-progress-percentage.baseline {
+  color: var(--text);
+}
+
+.body-progress-card-top p {
+  margin: 7px 0 0;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.body-progress-direction {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 14px;
+  font-size: 23px;
+  font-weight: 900;
+}
+
+.body-progress-direction.improved {
+  background: rgba(87, 211, 140, 0.11);
+  color: #57d38c;
+}
+
+.body-progress-direction.regressed {
+  background: rgba(255, 111, 115, 0.11);
+  color: #ff6f73;
+}
+
+.body-progress-direction.same {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-soft);
+}
+
+.body-progress-comparable-count {
+  display: inline-flex;
+  margin-top: 13px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.body-progress-chart {
+  width: 100%;
+  height: 220px;
+  margin-top: 16px;
+}
+
+.body-progress-chart .recharts-cartesian-axis-tick-value {
+  fill: rgba(255, 255, 255, 0.48);
+}
+
+.body-progress-chart .recharts-tooltip-wrapper {
+  outline: none;
+}
+
+.body-progress-no-chart {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.body-progress-no-chart strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+.body-progress-no-chart p,
+.progress-search-hint p {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.progress-search-hint {
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.progress-search-hint strong {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 12px;
+}
+
+@media (max-width: 390px) {
+  .overall-body-progress-heading {
+    display: block;
+  }
+
+  .overall-body-progress-heading > p {
+    max-width: none;
+    margin-top: 7px;
+    text-align: left;
+  }
+
+  .body-progress-card {
+    padding: 16px;
+    border-radius: 19px;
+  }
+
+  .body-progress-percentage {
+    font-size: 27px;
+  }
+}
