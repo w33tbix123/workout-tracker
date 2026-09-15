@@ -2261,6 +2261,62 @@ select:focus-visible {
 }
 
 /* ============================================================
+   PROGRESS — PERSONAL BESTS
+   ============================================================ */
+
+.progress-bests-list {
+  overflow: hidden;
+
+  border: 1px solid var(--line);
+  border-radius: 17px;
+}
+
+.progress-best-row {
+  display: grid;
+
+  grid-template-columns:
+    1fr
+    auto;
+
+  align-items: baseline;
+
+  gap: 8px;
+
+  padding: 11px 12px;
+
+  border-bottom: 1px solid var(--line);
+
+  background:
+    rgba(0, 0, 0, 0.14);
+}
+
+.progress-best-row:last-child {
+  border-bottom: none;
+}
+
+.progress-best-label {
+  color: var(--muted);
+
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.progress-best-row strong {
+  color: var(--text);
+
+  font-size: 12px;
+}
+
+.progress-best-date {
+  grid-column: 1 / -1;
+
+  color: var(--accent);
+
+  font-size: 8px;
+  font-weight: 760;
+}
+
+/* ============================================================
    SETTINGS
    ============================================================ */
 
@@ -3741,4 +3797,113 @@ button:disabled {
   .body-progress-percentage {
     font-size: 27px;
   }
+}
+
+/* ============================================================
+   LIVE WORKOUT TIMER
+   ============================================================ */
+
+.workout-live-timer {
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  font-weight: 800;
+}
+
+/* ============================================================
+   POST-WORKOUT SUMMARY
+   ============================================================ */
+
+.summary-app {
+  padding-bottom: 24px;
+}
+
+.summary-header h1 {
+  margin-bottom: 4px;
+}
+
+.summary-overall-card {
+  margin: 0 0 16px;
+  padding: 18px;
+  border: 1px solid rgba(239, 130, 120, 0.13);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% 12%, rgba(239, 130, 120, 0.1), transparent 34%),
+    rgba(18, 18, 24, 0.94);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.22);
+}
+
+.summary-overall-card h2 {
+  margin: 4px 0 8px;
+  font-size: 30px;
+  letter-spacing: -1px;
+}
+
+.summary-overall-value.improved {
+  color: var(--green);
+}
+
+.summary-overall-value.regressed {
+  color: var(--red);
+}
+
+.summary-overall-value.same {
+  color: var(--text-soft);
+}
+
+.summary-counts {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.summary-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
+.summary-stat-small {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.summary-exercise-section h3 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.summary-exercise-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.025), transparent 35%),
+    var(--surface);
+}
+
+.summary-exercise-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.summary-done-button {
+  width: 100%;
+  margin-top: 8px;
+  padding: 16px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
 }

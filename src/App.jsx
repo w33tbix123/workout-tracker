@@ -166,6 +166,44 @@ function formatTime(dateString) {
   );
 }
 
+function formatDuration(seconds) {
+  const totalSeconds =
+    Math.max(
+      0,
+      Math.floor(
+        Number(seconds) || 0
+      )
+    );
+
+  const hours = Math.floor(
+    totalSeconds / 3600
+  );
+
+  const minutes = Math.floor(
+    (totalSeconds % 3600) /
+      60
+  );
+
+  const secs =
+    totalSeconds % 60;
+
+  const pad = (value) =>
+    String(value).padStart(
+      2,
+      "0"
+    );
+
+  if (hours > 0) {
+    return `${hours}:${pad(
+      minutes
+    )}:${pad(secs)}`;
+  }
+
+  return `${pad(
+    minutes
+  )}:${pad(secs)}`;
+}
+
 // ============================================================
 // HISTORY PERFORMANCE HELPERS
 // ============================================================
@@ -184,6 +222,35 @@ function getBestPerformanceScore(sets = []) {
   return scores.length
     ? Math.max(...scores)
     : 0;
+}
+
+function getTotalVolume(sets = []) {
+  return sets.reduce(
+    (total, set) => {
+      const weight =
+        parseDecimal(
+          set.weight
+        );
+
+      const reps =
+        parseDecimal(
+          set.reps
+        );
+
+      if (
+        weight === null ||
+        reps === null
+      ) {
+        return total;
+      }
+
+      return (
+        total +
+        weight * reps
+      );
+    },
+    0
+  );
 }
 
 function getProgressStatus(percentageChange) {
@@ -562,6 +629,16 @@ function App() {
     ...EMPTY_EXERCISE_FORM,
   });
 
+  const [
+    summaryData,
+    setSummaryData,
+  ] = useState(null);
+
+  const [
+    nowTick,
+    setNowTick,
+  ] = useState(null);
+
   // ============================================================
   // LOAD PAUSED WORKOUT
   // ============================================================
@@ -591,6 +668,27 @@ function App() {
 
     loadDraft();
   }, []);
+
+  // ============================================================
+  // LIVE WORKOUT TIMER
+  // ============================================================
+
+  useEffect(() => {
+    if (!activeWorkout || !workoutStartedAt) {
+      setNowTick(null);
+      return;
+    }
+
+    const id = setInterval(() => {
+      setNowTick(Date.now());
+    }, 1000);
+
+    setNowTick(Date.now());
+
+    return () => {
+      clearInterval(id);
+    };
+  }, [activeWorkout, workoutStartedAt]);
 
   // ============================================================
   // SPLITS
@@ -1619,23 +1717,81 @@ function App() {
                 )
             );
 
+        let bestWeightRecord =
+          null;
+
+        let bestRepsRecord =
+          null;
+
+        let bestE1RMRecord =
+          null;
+
+        sessionData.forEach(
+          (session) => {
+            session.sets.forEach(
+              (set) => {
+                const weight =
+                  parseDecimal(
+                    set.weight
+                  );
+
+                const reps =
+                  parseDecimal(
+                    set.reps
+                  );
+
+                if (
+                  weight !==
+                    null &&
+                  weight >
+                    (bestWeightRecord
+                      ?.value || 0)
+                ) {
+                  bestWeightRecord = {
+                    value: weight,
+                    date:
+                      session.date,
+                  };
+                }
+
+                if (
+                  reps !==
+                    null &&
+                  reps >
+                    (bestRepsRecord
+                      ?.value || 0)
+                ) {
+                  bestRepsRecord = {
+                    value: reps,
+                    date:
+                      session.date,
+                  };
+                }
+
+                if (
+                  set.e1rm >
+                    (bestE1RMRecord
+                      ?.value || 0)
+                ) {
+                  bestE1RMRecord = {
+                    value:
+                      set.e1rm,
+                    date:
+                      session.date,
+                  };
+                }
+              }
+            );
+          }
+        );
+
         const bestWeight =
-          Math.max(
-            0,
-            ...sessionData.map(
-              (session) =>
-                session.bestWeight
-            )
-          );
+          bestWeightRecord
+            ?.value || 0;
 
         const bestE1RM =
-          Math.max(
-            0,
-            ...sessionData.map(
-              (session) =>
-                session.bestE1RM
-            )
-          );
+          bestE1RMRecord
+            ?.value || 0;
 
         const first =
           sessionData[0]
@@ -1664,6 +1820,12 @@ function App() {
           bestWeight,
 
           bestE1RM,
+
+          bestWeightRecord,
+
+          bestRepsRecord,
+
+          bestE1RMRecord,
 
           change,
         };
@@ -3631,17 +3793,39 @@ function App() {
         ),
       ];
 
+    const completedAt =
+      new Date().toISOString();
+
+    const startedMs =
+      workoutStartedAt
+        ? new Date(
+            workoutStartedAt
+          ).getTime()
+        : Date.now();
+
+    const durationSeconds = Math.max(
+      0,
+      Math.round(
+        (Date.now() -
+          startedMs) /
+          1000
+      )
+    );
+
     const sessionId =
       await db.sessions.add(
         {
           workoutDayId:
             selectedDayId,
 
-          date:
-            new Date().toISOString(),
+          date: completedAt,
 
           startedAt:
             workoutStartedAt,
+
+          completedAt,
+
+          durationSeconds,
 
           skippedExerciseIds,
 
@@ -3665,6 +3849,15 @@ function App() {
         )
       );
     }
+
+    const summary =
+      await buildWorkoutSummary(
+        sessionId,
+        completedSets,
+        skippedExerciseIds,
+        durationSeconds,
+        completedAt
+      );
 
     await db.appMeta.delete(
       "activeWorkoutDraft"
@@ -3712,13 +3905,315 @@ function App() {
       null
     );
 
-    setActiveTab(
-      "history"
+    setSummaryData(
+      summary
     );
 
-    alert(
-      "Workout completed and saved."
+    setActiveTab(
+      "summary"
     );
+  }
+
+  // ============================================================
+  // WORKOUT SUMMARY
+  // ============================================================
+
+  async function buildWorkoutSummary(
+    sessionId,
+    completedSets,
+    skippedExerciseIds,
+    durationSeconds,
+    completedAt
+  ) {
+    const previousSessions =
+      await db.sessions
+        .where("workoutDayId")
+        .equals(selectedDayId)
+        .toArray();
+
+    const earlierSessions =
+      previousSessions
+        .filter(
+          (session) =>
+            session.id !==
+            sessionId
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.date) -
+            new Date(a.date)
+        );
+
+    const exerciseNames = {};
+
+    const allExercises =
+      await db.exercises
+        .where("workoutDayId")
+        .equals(selectedDayId)
+        .toArray();
+
+    allExercises.forEach(
+      (exercise) => {
+        exerciseNames[
+          exercise.id
+        ] =
+          exercise.name;
+      }
+    );
+
+    const setsByExercise = {};
+
+    completedSets.forEach(
+      (set) => {
+        if (
+          !setsByExercise[
+            set.exerciseId
+          ]
+        ) {
+          setsByExercise[
+            set.exerciseId
+          ] = [];
+        }
+
+        setsByExercise[
+          set.exerciseId
+        ].push(set);
+      }
+    );
+
+    const exerciseIds =
+      Object.keys(
+        setsByExercise
+      ).map(Number);
+
+    const lastPerformance =
+      new Map();
+
+    for (
+      const session of earlierSessions
+    ) {
+      const sessionSets =
+        await db.sets
+          .where("sessionId")
+          .equals(session.id)
+          .toArray();
+
+      const grouped = {};
+
+      sessionSets.forEach(
+        (set) => {
+          if (
+            !grouped[
+              set.exerciseId
+            ]
+          ) {
+            grouped[
+              set.exerciseId
+            ] = [];
+          }
+
+          grouped[
+            set.exerciseId
+          ].push(set);
+        }
+      );
+
+      Object.entries(
+        grouped
+      ).forEach(
+        ([idString, sets]) => {
+          const id = Number(
+            idString
+          );
+
+          if (
+            !lastPerformance.has(
+              id
+            )
+          ) {
+            lastPerformance.set(
+              id,
+              {
+                score:
+                  getBestPerformanceScore(
+                    sets
+                  ),
+                sessionId:
+                  session.id,
+                date:
+                  session.date,
+              }
+            );
+          }
+        }
+      );
+    }
+
+    const exerciseComparisons =
+      [];
+
+    exerciseIds.forEach(
+      (exerciseId) => {
+        const currentScore =
+          getBestPerformanceScore(
+            setsByExercise[
+              exerciseId
+            ]
+          );
+
+        if (
+          currentScore <= 0
+        ) {
+          return;
+        }
+
+        const previous =
+          lastPerformance.get(
+            exerciseId
+          );
+
+        if (
+          !previous ||
+          previous.score <= 0
+        ) {
+          exerciseComparisons.push(
+            {
+              exerciseId,
+              exerciseName:
+                exerciseNames[
+                  exerciseId
+                ] ||
+                "Exercise",
+              status: "new",
+              percentageChange: null,
+            }
+          );
+
+          return;
+        }
+
+        const percentageChange =
+          ((currentScore -
+            previous.score) /
+            previous.score) *
+          100;
+
+        exerciseComparisons.push(
+          {
+            exerciseId,
+            exerciseName:
+              exerciseNames[
+                exerciseId
+              ] ||
+              "Exercise",
+            status:
+              getProgressStatus(
+                percentageChange
+              ),
+            percentageChange,
+            previousDate:
+              previous.date,
+          }
+        );
+      }
+    );
+
+    const comparable =
+      exerciseComparisons.filter(
+        (comparison) =>
+          comparison.status !==
+            "new" &&
+          Number.isFinite(
+            comparison.percentageChange
+          )
+      );
+
+    const improved =
+      comparable.filter(
+        (comparison) =>
+          comparison.status ===
+          "improved"
+      ).length;
+
+    const same =
+      comparable.filter(
+        (comparison) =>
+          comparison.status ===
+          "same"
+      ).length;
+
+    const regressed =
+      comparable.filter(
+        (comparison) =>
+          comparison.status ===
+          "regressed"
+      ).length;
+
+    const newCount =
+      exerciseComparisons.filter(
+        (comparison) =>
+          comparison.status ===
+          "new"
+      ).length;
+
+    const overallPercentage =
+      comparable.length
+        ? comparable.reduce(
+            (total, comparison) =>
+              total +
+              comparison.percentageChange,
+            0
+          ) / comparable.length
+        : null;
+
+    const volumeByExercise = {};
+
+    completedSets.forEach(
+      (set) => {
+        volumeByExercise[
+          set.exerciseId
+        ] =
+          getTotalVolume(
+            setsByExercise[
+              set.exerciseId
+            ]
+          );
+      }
+    );
+
+    return {
+      sessionId,
+      workoutDayName:
+        selectedDay?.name ||
+        "",
+      completedAt,
+      durationSeconds,
+      completedSetCount:
+        completedSets.length,
+      skippedExerciseIds,
+      totalVolume: Object.values(
+        volumeByExercise
+      ).reduce(
+        (total, value) =>
+          total + value,
+        0
+      ),
+      exerciseCount:
+        exerciseComparisons
+          .length,
+      overallPercentage,
+      improved,
+      same,
+      regressed,
+      newCount,
+      exerciseComparisons,
+    };
+  }
+
+  function closeSummary() {
+    setSummaryData(null);
+
+    setActiveTab("history");
   }
 
   // ============================================================
@@ -4498,6 +4993,209 @@ function App() {
   }
 
   // ============================================================
+  // WORKOUT SUMMARY
+  // ============================================================
+
+  if (
+    activeTab === "summary" &&
+    summaryData
+  ) {
+    const summaryStatus =
+      summaryData.overallPercentage ===
+        null ||
+      summaryData.overallPercentage ===
+        undefined
+        ? "same"
+        : summaryData
+            .overallPercentage >
+          0.05
+        ? "improved"
+        : summaryData
+            .overallPercentage <
+          -0.05
+        ? "regressed"
+        : "same";
+
+    return (
+      <div className="app summary-app app-with-fixed-back">
+        <button
+          className="back-button"
+          onClick={closeSummary}
+        >
+          ← History
+        </button>
+
+        <header className="topbar summary-header">
+          <div>
+            <p className="eyebrow">
+              WORKOUT COMPLETE
+            </p>
+
+            <h1>
+              {
+                summaryData.workoutDayName
+              }
+            </h1>
+
+            <p className="active-workout-started">
+              {formatDate(
+                summaryData.completedAt
+              )}
+              {" "}·{" "}
+              {formatDuration(
+                summaryData.durationSeconds
+              )}
+            </p>
+          </div>
+        </header>
+
+        <section className="summary-overall-card">
+          <p className="card-label">
+            OVERALL PROGRESSION
+          </p>
+
+          {summaryData.overallPercentage ===
+          null ? (
+            <h2 className="muted">
+              New baseline
+            </h2>
+          ) : (
+            <h2
+              className={`summary-overall-value ${summaryStatus}`}
+            >
+              {formatProgressPercentage(
+                summaryData.overallPercentage
+              )}
+              {" "}overall
+            </h2>
+          )}
+
+          <p className="summary-counts">
+            {summaryData.improved}{" "}
+            improved ·{" "}
+            {summaryData.same}{" "}
+            same ·{" "}
+            {summaryData.regressed}{" "}
+            regressed
+          </p>
+        </section>
+
+        <section className="summary-stats-grid">
+          <div className="stat-card">
+            <span>
+              Duration
+            </span>
+
+            <strong>
+              {formatDuration(
+                summaryData.durationSeconds
+              )}
+            </strong>
+          </div>
+
+          <div className="stat-card">
+            <span>
+              Completed Sets
+            </span>
+
+            <strong>
+              {
+                summaryData.completedSetCount
+              }
+            </strong>
+          </div>
+
+          <div className="stat-card">
+            <span>
+              Volume
+            </span>
+
+            <strong>
+              {Math.round(
+                summaryData.totalVolume
+              )}{" "}
+              kg
+            </strong>
+          </div>
+
+          <div className="stat-card">
+            <span>
+              Exercises
+            </span>
+
+            <strong>
+              {summaryData.exerciseCount}{" "}
+              <small className="summary-stat-small">
+                /{" "}
+                {
+                  summaryData
+                    .skippedExerciseIds
+                    .length
+                }{" "}
+                skipped
+              </small>
+            </strong>
+          </div>
+        </section>
+
+        <section className="summary-exercise-section">
+          <h3>
+            Exercise breakdown
+          </h3>
+
+          {summaryData.exerciseComparisons.map(
+            (comparison) => (
+              <div
+                className="summary-exercise-row"
+                key={
+                  comparison.exerciseId
+                }
+              >
+                <span className="summary-exercise-name">
+                  {
+                    comparison.exerciseName
+                  }
+                </span>
+
+                {comparison.status ===
+                "new" ? (
+                  <span className="history-exercise-status same">
+                    New baseline
+                  </span>
+                ) : (
+                  <span
+                    className={`history-exercise-status ${comparison.status}`}
+                  >
+                    {comparison.status ===
+                    "improved"
+                      ? "↑ Improved"
+                      : comparison.status ===
+                        "regressed"
+                      ? "↓ Regressed"
+                      : "= Same"}{" "}
+                    {comparison.percentageChange !==
+                    null &&
+                      formatProgressPercentage(
+                        comparison.percentageChange
+                      )}
+                  </span>
+                )}
+              </div>
+            )
+          )}
+        </section>
+
+        <button
+          className="summary-done-button"
+          onClick={closeSummary}
+        >
+          View in History
+        </button>
+      </div>
+    );
+  }
+
+  // ============================================================
   // ACTIVE WORKOUT
   // ============================================================
 
@@ -4533,7 +5231,20 @@ function App() {
               Started{" "}
               {formatTime(
                 workoutStartedAt
-              )}
+              )}{" "}
+              ·{" "}
+              <span className="workout-live-timer">
+                {formatDuration(
+                  nowTick &&
+                    workoutStartedAt
+                    ? (nowTick -
+                        new Date(
+                          workoutStartedAt
+                        ).getTime()) /
+                        1000
+                    : 0
+                )}
+              </span>
             </p>
           </div>
         </header>
@@ -6110,6 +6821,88 @@ function App() {
                     )}
                     %
                   </strong>
+                </div>
+              </section>
+
+              <section className="section">
+                <div className="section-header">
+                  <h3>
+                    Personal Bests
+                  </h3>
+                </div>
+
+                <div className="progress-bests-list">
+                  {[
+                    {
+                      label: "Best weight",
+                      record:
+                        progressData
+                          .bestWeightRecord,
+                      format: (
+                        value
+                      ) =>
+                        `${value} kg`,
+                    },
+                    {
+                      label: "Best reps",
+                      record:
+                        progressData
+                          .bestRepsRecord,
+                      format: (
+                        value
+                      ) =>
+                        `${value} reps`,
+                    },
+                    {
+                      label: "Best strength (e1RM)",
+                      record:
+                        progressData
+                          .bestE1RMRecord,
+                      format: (
+                        value
+                      ) =>
+                        `${value.toFixed(
+                          1
+                        )} kg`,
+                    },
+                  ].map(
+                    (
+                      item
+                    ) => (
+                      <div
+                        className="progress-best-row"
+                        key={
+                          item.label
+                        }
+                      >
+                        <span className="progress-best-label">
+                          {
+                            item.label
+                          }
+                        </span>
+
+                        <strong>
+                          {item.record
+                            ? item.format(
+                                item
+                                  .record
+                                  .value
+                              )
+                            : "—"}
+                        </strong>
+
+                        <span className="progress-best-date">
+                          {item.record
+                            ? formatDate(
+                                item
+                                  .record
+                                  .date
+                              )
+                            : ""}
+                        </span>
+                      </div>
+                    )
+                  )}
                 </div>
               </section>
 
