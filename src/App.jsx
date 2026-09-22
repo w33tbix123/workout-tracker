@@ -208,22 +208,6 @@ function formatDuration(seconds) {
 // HISTORY PERFORMANCE HELPERS
 // ============================================================
 
-function getBestPerformanceScore(sets = []) {
-  const scores = sets
-    .map((set) =>
-      calculateE1RM(
-        set.weight,
-        set.reps,
-        getRIRValue(set.rir)
-      )
-    )
-    .filter((score) => score > 0);
-
-  return scores.length
-    ? Math.max(...scores)
-    : 0;
-}
-
 function getTotalVolume(sets = []) {
   return sets.reduce(
     (total, set) => {
@@ -265,6 +249,107 @@ function getProgressStatus(percentageChange) {
   }
 
   return "same";
+}
+
+// The user trains in a fixed rep range. Any time the weight goes UP while
+// the reps stay within the working range, that is always counted as
+// progression, regardless of what the RIR-adjusted e1RM estimate says.
+const PROGRESSION_REP_MIN = 5;
+const PROGRESSION_REP_MAX = 8;
+
+// Returns the single best set of a list by RIR-adjusted e1RM,
+// carrying the raw weight/reps so progression can be judged by load.
+function getBestSet(sets = []) {
+  let best = null;
+
+  for (const set of sets) {
+    const weight = parseDecimal(set.weight);
+    const reps = parseDecimal(set.reps);
+
+    if (
+      weight === null ||
+      reps === null ||
+      weight <= 0 ||
+      reps <= 0
+    ) {
+      continue;
+    }
+
+    const score = calculateE1RM(
+      weight,
+      reps,
+      getRIRValue(set.rir)
+    );
+
+    if (!best || score > best.score) {
+      best = {
+        weight,
+        reps,
+        score,
+      };
+    }
+  }
+
+  return best;
+}
+
+// Decide how an exercise progressed from one performance to the next.
+// `current` and `previous` are best-set objects { weight, reps, score }.
+// Rule: weight up + reps within working range => always "improved".
+function resolveExerciseProgress(
+  current,
+  previous
+) {
+  if (!previous) {
+    return {
+      status: "new",
+      percentageChange: null,
+      source: "new",
+    };
+  }
+
+  const weightUp =
+    current.weight > previous.weight;
+
+  const inRange =
+    current.reps >=
+      PROGRESSION_REP_MIN &&
+    current.reps <=
+      PROGRESSION_REP_MAX;
+
+  if (
+    weightUp &&
+    inRange
+  ) {
+    const weightPct =
+      previous.weight > 0
+        ? ((current.weight -
+            previous.weight) /
+            previous.weight) *
+          100
+        : 0;
+
+    return {
+      status: "improved",
+      percentageChange: weightPct,
+      source: "weight",
+    };
+  }
+
+  const pct =
+    previous.score > 0
+      ? ((current.score -
+          previous.score) /
+          previous.score) *
+        100
+      : 0;
+
+  return {
+    status:
+      getProgressStatus(pct),
+    percentageChange: pct,
+    source: "e1rm",
+  };
 }
 
 function formatProgressPercentage(value) {
@@ -406,6 +491,26 @@ function compareSet(current, previous) {
       type: "regressed",
       text: `↓ ${changes.join(" · ")}`,
     };
+  }
+
+  // Mixed result (e.g. weight up but reps down). If the load went up and
+  // the reps are still within the working rep range, count it as
+  // progression — this matches the user's rep-range training style.
+  if (
+    weightDiff > 0 &&
+    repsDiff < 0
+  ) {
+    if (
+      currentReps >=
+        PROGRESSION_REP_MIN &&
+      currentReps <=
+        PROGRESSION_REP_MAX
+    ) {
+      return {
+        type: "improved",
+        text: `↑ ${changes.join(" · ")}`,
+      };
+    }
   }
 
   const currentScore =
@@ -1231,50 +1336,58 @@ function App() {
               const exerciseId = Number(exerciseIdString);
               const exercise = exerciseMap[exerciseId];
 
-              const currentScore =
-                getBestPerformanceScore(currentSets);
+              const currentBest =
+                getBestSet(currentSets);
 
-              if (currentScore <= 0) {
+              if (!currentBest) {
                 return;
               }
 
               const previous =
                 lastPerformanceByExercise.get(exerciseId);
 
-              if (!previous || previous.score <= 0) {
+              if (!previous) {
                 exerciseComparisons.push({
                   exerciseId,
                   exerciseName:
                     exercise?.name || "Exercise",
                   status: "new",
                   percentageChange: null,
-                  currentScore,
+                  currentScore:
+                    currentBest.score,
                   previousScore: null,
                   previousSessionId: null,
                   previousDate: null,
                 });
               } else {
-                const percentageChange =
-                  ((currentScore - previous.score) /
-                    previous.score) *
-                  100;
+                const result =
+                  resolveExerciseProgress(
+                    currentBest,
+                    previous
+                  );
 
                 exerciseComparisons.push({
                   exerciseId,
                   exerciseName:
                     exercise?.name || "Exercise",
-                  status:
-                    getProgressStatus(percentageChange),
-                  percentageChange,
-                  currentScore,
-                  previousScore: previous.score,
-                  previousSessionId: previous.sessionId,
-                  previousDate: previous.date,
+                  status: result.status,
+                  percentageChange:
+                    result.percentageChange,
+                  currentScore:
+                    currentBest.score,
+                  previousScore:
+                    previous.score,
+                  previousSessionId:
+                    previous.sessionId,
+                  previousDate:
+                    previous.date,
                 });
               }
 
               lastPerformanceByExercise.set(exerciseId, {
-                score: currentScore,
+                weight: currentBest.weight,
+                reps: currentBest.reps,
+                score: currentBest.score,
                 sessionId: session.id,
                 date: session.date,
               });
@@ -1954,9 +2067,9 @@ function App() {
                   return;
                 }
 
-                const score = getBestPerformanceScore(sets);
+                const best = getBestSet(sets);
 
-                if (score <= 0) {
+                if (!best) {
                   return;
                 }
 
@@ -1968,7 +2081,9 @@ function App() {
                   .toLowerCase();
 
                 monthlyPerformances[bodyType][monthKey][exerciseKey] = {
-                  score,
+                  weight: best.weight,
+                  reps: best.reps,
+                  score: best.score,
                   date: session.date,
                   exerciseName: exercise.name,
                 };
@@ -1989,19 +2104,34 @@ function App() {
               .map(([exerciseKey, current]) => {
                 const previous = previousExercises[exerciseKey];
 
-                if (!previous || previous.score <= 0) {
+                if (!previous) {
                   return null;
                 }
 
-                const percentageChange =
-                  ((current.score - previous.score) /
-                    previous.score) *
-                  100;
+                const result = resolveExerciseProgress(
+                  {
+                    weight: current.weight,
+                    reps: current.reps,
+                    score: current.score,
+                  },
+                  {
+                    weight: previous.weight,
+                    reps: previous.reps,
+                    score: previous.score,
+                  }
+                );
+
+                if (
+                  result.status === "new" ||
+                  !Number.isFinite(result.percentageChange)
+                ) {
+                  return null;
+                }
 
                 return {
                   exerciseKey,
                   exerciseName: current.exerciseName,
-                  percentageChange,
+                  percentageChange: result.percentageChange,
                 };
               })
               .filter(Boolean);
@@ -4031,19 +4161,25 @@ function App() {
               id
             )
           ) {
-            lastPerformance.set(
-              id,
-              {
-                score:
-                  getBestPerformanceScore(
-                    sets
-                  ),
-                sessionId:
-                  session.id,
-                date:
-                  session.date,
-              }
-            );
+            const best =
+              getBestSet(sets);
+
+            if (best) {
+              lastPerformance.set(
+                id,
+                {
+                  weight:
+                    best.weight,
+                  reps: best.reps,
+                  score:
+                    best.score,
+                  sessionId:
+                    session.id,
+                  date:
+                    session.date,
+                }
+              );
+            }
           }
         }
       );
@@ -4054,16 +4190,14 @@ function App() {
 
     exerciseIds.forEach(
       (exerciseId) => {
-        const currentScore =
-          getBestPerformanceScore(
+        const currentBest =
+          getBestSet(
             setsByExercise[
               exerciseId
             ]
           );
 
-        if (
-          currentScore <= 0
-        ) {
+        if (!currentBest) {
           return;
         }
 
@@ -4072,10 +4206,7 @@ function App() {
             exerciseId
           );
 
-        if (
-          !previous ||
-          previous.score <= 0
-        ) {
+        if (!previous) {
           exerciseComparisons.push(
             {
               exerciseId,
@@ -4092,11 +4223,11 @@ function App() {
           return;
         }
 
-        const percentageChange =
-          ((currentScore -
-            previous.score) /
-            previous.score) *
-          100;
+        const result =
+          resolveExerciseProgress(
+            currentBest,
+            previous
+          );
 
         exerciseComparisons.push(
           {
@@ -4106,11 +4237,9 @@ function App() {
                 exerciseId
               ] ||
               "Exercise",
-            status:
-              getProgressStatus(
-                percentageChange
-              ),
-            percentageChange,
+            status: result.status,
+            percentageChange:
+              result.percentageChange,
             previousDate:
               previous.date,
           }
