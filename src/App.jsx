@@ -574,12 +574,12 @@ const EMPTY_EXERCISE_FORM = {
   name: "",
   targetSets: 2,
   warmupSets: 0,
-  minReps: 6,
+  minReps: 5,
   maxReps: 8,
   targetRIR: "Failure",
   optional: false,
   hasAlternative: false,
-  alternativeName: "",
+  alternatives: [""],
 };
 
 // ============================================================
@@ -2477,8 +2477,7 @@ function App() {
     let hasAlternative =
       false;
 
-    let alternativeName =
-      "";
+    let alternatives = [""];
 
     if (
       exercise.alternativeGroup
@@ -2501,14 +2500,23 @@ function App() {
           )
           .toArray();
 
+      partners.sort(
+        (a, b) =>
+          Number(a.order) -
+          Number(b.order)
+      );
+
       if (
         partners.length
       ) {
         hasAlternative =
           true;
 
-        alternativeName =
-          partners[0].name;
+        alternatives =
+          partners.map(
+            (partner) =>
+              partner.name
+          );
       }
     }
 
@@ -2531,7 +2539,7 @@ function App() {
 
       minReps:
         exercise.minReps ??
-        6,
+        5,
 
       maxReps:
         exercise.maxReps ??
@@ -2546,7 +2554,7 @@ function App() {
 
       hasAlternative,
 
-      alternativeName,
+      alternatives,
     });
 
     setShowExerciseForm(
@@ -2566,12 +2574,22 @@ function App() {
       return;
     }
 
+    const alternativeNames =
+      (
+        exerciseForm.alternatives ||
+        []
+      )
+        .map((value) =>
+          String(value).trim()
+        )
+        .filter(Boolean);
+
     if (
       exerciseForm.hasAlternative &&
-      !exerciseForm.alternativeName.trim()
+      !alternativeNames.length
     ) {
       alert(
-        "Enter an alternative exercise."
+        "Enter at least one alternative exercise."
       );
 
       return;
@@ -2643,40 +2661,33 @@ function App() {
             .toString(36)
             .slice(2, 8)}`;
 
+        const records = [
+          name,
+          ...alternativeNames,
+        ].map(
+          (
+            exerciseName,
+            index
+          ) => ({
+            workoutDayId:
+              selectedDayId,
+
+            name:
+              exerciseName,
+
+            order:
+              nextOrder +
+              index * 0.01,
+
+            alternativeGroup:
+              group,
+
+            ...template,
+          })
+        );
+
         await db.exercises.bulkAdd(
-          [
-            {
-              workoutDayId:
-                selectedDayId,
-
-              name,
-
-              order:
-                nextOrder,
-
-              alternativeGroup:
-                group,
-
-              ...template,
-            },
-
-            {
-              workoutDayId:
-                selectedDayId,
-
-              name:
-                exerciseForm.alternativeName.trim(),
-
-              order:
-                nextOrder +
-                0.01,
-
-              alternativeGroup:
-                group,
-
-              ...template,
-            },
-          ]
+          records
         );
       } else {
         await db.exercises.add(
@@ -2728,6 +2739,12 @@ function App() {
                   current.id
             )
             .toArray();
+
+        partners.sort(
+          (a, b) =>
+            Number(a.order) -
+            Number(b.order)
+        );
       }
 
       if (
@@ -2751,39 +2768,81 @@ function App() {
           }
         );
 
-        if (
-          partners.length
+        const baseOrder =
+          Number(
+            current.order
+          ) || 0;
+
+        for (
+          let index = 0;
+          index <
+          alternativeNames.length;
+          index++
+        ) {
+          const partnerName =
+            alternativeNames[
+              index
+            ];
+
+          const existingPartner =
+            partners[index];
+
+          const partnerOrder =
+            baseOrder +
+            (index + 1) * 0.01;
+
+          if (
+            existingPartner
+          ) {
+            await db.exercises.update(
+              existingPartner.id,
+              {
+                name:
+                  partnerName,
+
+                order:
+                  partnerOrder,
+
+                alternativeGroup:
+                  group,
+
+                ...template,
+              }
+            );
+          } else {
+            await db.exercises.add(
+              {
+                workoutDayId:
+                  current.workoutDayId,
+
+                name:
+                  partnerName,
+
+                order:
+                  partnerOrder,
+
+                alternativeGroup:
+                  group,
+
+                ...template,
+              }
+            );
+          }
+        }
+
+        // Archive any old partners that were removed from the group.
+        for (
+          let index =
+            alternativeNames.length;
+          index <
+          partners.length;
+          index++
         ) {
           await db.exercises.update(
-            partners[0].id,
+            partners[index].id,
             {
-              name:
-                exerciseForm.alternativeName.trim(),
-
-              alternativeGroup:
-                group,
-
-              ...template,
-            }
-          );
-        } else {
-          await db.exercises.add(
-            {
-              workoutDayId:
-                current.workoutDayId,
-
-              name:
-                exerciseForm.alternativeName.trim(),
-
-              order:
-                Number(
-                  current.order
-                ) + 0.01,
-
-              alternativeGroup:
-                group,
-
-              ...template,
+              archived:
+                true,
             }
           );
         }
@@ -2814,6 +2873,13 @@ function App() {
       }
     }
 
+    // When an exercise is added or edited while a workout is running,
+    // make sure any brand-new exercises get their working-set rows so
+    // they show up immediately in the active workout.
+    if (activeWorkout) {
+      await syncNewExercisesIntoWorkout();
+    }
+
     setShowExerciseForm(
       false
     );
@@ -2825,6 +2891,117 @@ function App() {
     setExerciseForm({
       ...EMPTY_EXERCISE_FORM,
     });
+  }
+
+  async function syncNewExercisesIntoWorkout() {
+    const dayExercises =
+      await db.exercises
+        .where("workoutDayId")
+        .equals(selectedDayId)
+        .toArray();
+
+    const active =
+      dayExercises.filter(
+        (exercise) =>
+          !exercise.archived
+      );
+
+    function makeEmptySet() {
+      return {
+        weight: "",
+        reps: "",
+        rir: "",
+        completed: false,
+      };
+    }
+
+    setWorkoutSets(
+      (previous) => {
+        const next = {
+          ...previous,
+        };
+
+        active.forEach(
+          (exercise) => {
+            const existing =
+              next[exercise.id];
+
+            if (!existing) {
+              next[exercise.id] =
+                createExerciseSets(
+                  exercise
+                );
+
+              return;
+            }
+
+            const target = Math.max(
+              1,
+              Number(
+                exercise.targetSets ||
+                  1
+              )
+            );
+
+            if (
+              existing.length <
+              target
+            ) {
+              const additions =
+                Array.from(
+                  {
+                    length:
+                      target -
+                      existing.length,
+                  },
+                  makeEmptySet
+                );
+
+              next[exercise.id] = [
+                ...existing,
+                ...additions,
+              ];
+
+              return;
+            }
+
+            if (
+              existing.length >
+              target
+            ) {
+              const result = [
+                ...existing,
+              ];
+
+              while (
+                result.length >
+                target
+              ) {
+                const last =
+                  result[
+                    result.length -
+                      1
+                  ];
+
+                // Never delete a completed set.
+                if (
+                  last?.completed
+                ) {
+                  break;
+                }
+
+                result.pop();
+              }
+
+              next[exercise.id] =
+                result;
+            }
+          }
+        );
+
+        return next;
+      }
+    );
   }
 
   async function deleteExercise(
@@ -5070,24 +5247,92 @@ function App() {
           {exerciseForm.hasAlternative && (
             <>
               <label>
-                Alternative exercise
+                Alternative exercises
               </label>
 
-              <input
-                className="form-input"
-                value={
-                  exerciseForm.alternativeName
-                }
-                onChange={(
-                  event
-                ) =>
+              {(exerciseForm.alternatives ||
+                [""]).map(
+                (
+                  alternative,
+                  index
+                ) => (
+                  <div
+                    className="alternative-input-row"
+                    key={index}
+                  >
+                    <input
+                      className="form-input"
+                      value={alternative}
+                      placeholder="Alternative exercise"
+                      onChange={(
+                        event
+                      ) => {
+                        const next =
+                          [
+                            ...(exerciseForm.alternatives ||
+                              []),
+                          ];
+
+                        next[index] =
+                          event.target
+                            .value;
+
+                        change(
+                          "alternatives",
+                          next
+                        );
+                      }}
+                    />
+
+                    {(exerciseForm
+                      .alternatives ||
+                      [])
+                      .length >
+                      1 && (
+                      <button
+                        className="remove-alternative-button"
+                        onClick={() => {
+                          const next =
+                            (
+                              exerciseForm.alternatives ||
+                              []
+                            ).filter(
+                              (
+                                _,
+                                itemIndex
+                              ) =>
+                                itemIndex !==
+                                index
+                            );
+
+                          change(
+                            "alternatives",
+                            next
+                          );
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                )
+              )}
+
+              <button
+                className="add-alternative-button"
+                onClick={() => {
                   change(
-                    "alternativeName",
-                    event.target
-                      .value
-                  )
-                }
-              />
+                    "alternatives",
+                    [
+                      ...(exerciseForm.alternatives ||
+                        []),
+                      "",
+                    ]
+                  );
+                }}
+              >
+                + Add another alternative
+              </button>
             </>
           )}
 
@@ -5493,6 +5738,9 @@ function App() {
                       openProgress={
                         openWorkoutExerciseProgress
                       }
+                      onEdit={
+                        openEditExercise
+                      }
                     />
                   </div>
                 );
@@ -5640,6 +5888,9 @@ function App() {
                       openProgress={
                         openWorkoutExerciseProgress
                       }
+                      onEdit={
+                        openEditExercise
+                      }
                     />
                   </div>
                 );
@@ -5685,12 +5936,22 @@ function App() {
                     openProgress={
                       openWorkoutExerciseProgress
                     }
+                    onEdit={
+                      openEditExercise
+                    }
                   />
                 </div>
               );
             }
           )}
         </section>
+
+        <button
+          className="add-workout-exercise-button"
+          onClick={openNewExercise}
+        >
+          + Add Exercise
+        </button>
 
         <button
           className="finish-workout-button"
@@ -5700,6 +5961,8 @@ function App() {
         >
           Complete Workout
         </button>
+
+        {renderExerciseForm()}
       </div>
     );
   }
@@ -7401,6 +7664,7 @@ function ExerciseWorkoutCard({
   addSet,
   removeSet,
   openProgress,
+  onEdit,
 }) {
   const previousSets =
     previousInfo
@@ -7458,6 +7722,17 @@ function ExerciseWorkoutCard({
           >
             Progress
           </button>
+
+          {onEdit && (
+            <button
+              className="exercise-edit-button"
+              onClick={() =>
+                onEdit(exercise)
+              }
+            >
+              Edit
+            </button>
+          )}
 
           {allComplete && (
             <span className="completed-badge">

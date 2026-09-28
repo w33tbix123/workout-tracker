@@ -803,6 +803,33 @@ select:focus-visible {
   transform: scale(0.95);
 }
 
+.exercise-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-height: 31px;
+
+  padding: 0 10px;
+
+  border: none;
+  border-radius: 999px;
+
+  background:
+    rgba(255, 255, 255, 0.06);
+
+  color: var(--text-soft);
+
+  font-size: 9px;
+  font-weight: 800;
+
+  cursor: pointer;
+}
+
+.exercise-edit-button:active {
+  transform: scale(0.95);
+}
+
 /* ============================================================
    OPTIONAL / ALTERNATIVE
    ============================================================ */
@@ -1617,6 +1644,31 @@ select:focus-visible {
 }
 
 .finish-workout-button:active {
+  transform: scale(0.985);
+}
+
+.add-workout-exercise-button {
+  width: 100%;
+  min-height: 48px;
+
+  margin-top: 16px;
+
+  border: 1px dashed
+    rgba(239, 130, 120, 0.35);
+  border-radius: 17px;
+
+  background:
+    rgba(239, 130, 120, 0.07);
+
+  color: var(--accent-bright);
+
+  font-size: 12px;
+  font-weight: 800;
+
+  cursor: pointer;
+}
+
+.add-workout-exercise-button:active {
   transform: scale(0.985);
 }
 
@@ -2663,6 +2715,60 @@ select:focus-visible {
 
   font-size: 10px;
   font-weight: 650;
+}
+
+.alternative-input-row {
+  display: flex;
+  align-items: center;
+
+  gap: 8px;
+
+  margin-bottom: 8px;
+}
+
+.alternative-input-row .form-input {
+  flex: 1;
+}
+
+.remove-alternative-button {
+  width: 38px;
+  height: 44px;
+
+  flex-shrink: 0;
+
+  border: none;
+  border-radius: 13px;
+
+  background:
+    rgba(239, 130, 120, 0.12);
+
+  color: var(--accent);
+
+  font-size: 18px;
+  font-weight: 700;
+
+  cursor: pointer;
+}
+
+.add-alternative-button {
+  width: 100%;
+
+  margin-top: 2px;
+  padding: 11px;
+
+  border: 1px dashed
+    rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
+
+  background:
+    rgba(255, 255, 255, 0.02);
+
+  color: var(--text-soft);
+
+  font-size: 11px;
+  font-weight: 700;
+
+  cursor: pointer;
 }
 
 .form-help {
