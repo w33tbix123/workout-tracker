@@ -2625,6 +2625,11 @@ function App() {
       archived: false,
     };
 
+    // Set rows in an active workout are only resized when the working
+    // set count actually changed, so renaming or changing the RIR target
+    // never removes sets the user added.
+    let resizeExerciseId = null;
+
     if (
       !editingExerciseId
     ) {
@@ -2715,6 +2720,16 @@ function App() {
 
       if (!current) {
         return;
+      }
+
+      if (
+        Number(
+          current.targetSets
+        ) !==
+        template.targetSets
+      ) {
+        resizeExerciseId =
+          current.id;
       }
 
       let partners = [];
@@ -2875,9 +2890,12 @@ function App() {
 
     // When an exercise is added or edited while a workout is running,
     // make sure any brand-new exercises get their working-set rows so
-    // they show up immediately in the active workout.
+    // they show up immediately in the active workout. Only the edited
+    // exercise (and its alternatives) has its set rows resized.
     if (activeWorkout) {
-      await syncNewExercisesIntoWorkout();
+      await syncNewExercisesIntoWorkout(
+        resizeExerciseId
+      );
     }
 
     setShowExerciseForm(
@@ -2893,7 +2911,9 @@ function App() {
     });
   }
 
-  async function syncNewExercisesIntoWorkout() {
+  async function syncNewExercisesIntoWorkout(
+    resizeExerciseId = null
+  ) {
     const dayExercises =
       await db.exercises
         .where("workoutDayId")
@@ -2905,6 +2925,33 @@ function App() {
         (exercise) =>
           !exercise.archived
       );
+
+    // Saving an exercise writes the same set count to its alternative
+    // partners, so they are resized together. Every other exercise keeps
+    // its rows untouched, including extra sets added with "+ Add Set".
+    const edited =
+      active.find(
+        (exercise) =>
+          exercise.id ===
+          resizeExerciseId
+      );
+
+    const resizeIds = new Set(
+      active
+        .filter(
+          (exercise) =>
+            edited &&
+            (exercise.id ===
+              edited.id ||
+              (edited.alternativeGroup &&
+                exercise.alternativeGroup ===
+                  edited.alternativeGroup))
+        )
+        .map(
+          (exercise) =>
+            exercise.id
+        )
+    );
 
     function makeEmptySet() {
       return {
@@ -2932,6 +2979,14 @@ function App() {
                   exercise
                 );
 
+              return;
+            }
+
+            if (
+              !resizeIds.has(
+                exercise.id
+              )
+            ) {
               return;
             }
 
