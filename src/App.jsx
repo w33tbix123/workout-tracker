@@ -32,9 +32,10 @@ function normalizeDecimalInput(value) {
     return "";
   }
 
+  // Weight, reps and RIR are never negative, so "-" is dropped too.
   let normalized = String(value)
     .replace(",", ".")
-    .replace(/[^\d.-]/g, "");
+    .replace(/[^\d.]/g, "");
 
   const parts = normalized.split(".");
 
@@ -43,14 +44,6 @@ function normalizeDecimalInput(value) {
       parts.shift() +
       "." +
       parts.join("");
-  }
-
-  if (normalized.length > 1) {
-    normalized =
-      normalized.charAt(0) +
-      normalized
-        .slice(1)
-        .replace(/-/g, "");
   }
 
   return normalized;
@@ -259,6 +252,8 @@ const PROGRESSION_REP_MAX = 8;
 
 // Returns the single best set of a list by RIR-adjusted e1RM,
 // carrying the raw weight/reps so progression can be judged by load.
+// 0 kg (bodyweight) sets count too: their e1RM is 0, so they are ranked
+// by reps + RIR (`effectiveReps`) and only win when nothing is loaded.
 function getBestSet(sets = []) {
   let best = null;
 
@@ -269,23 +264,35 @@ function getBestSet(sets = []) {
     if (
       weight === null ||
       reps === null ||
-      weight <= 0 ||
+      weight < 0 ||
       reps <= 0
     ) {
       continue;
     }
 
+    const rir = getRIRValue(set.rir);
+
     const score = calculateE1RM(
       weight,
       reps,
-      getRIRValue(set.rir)
+      rir
     );
 
-    if (!best || score > best.score) {
+    const effectiveReps =
+      reps + rir;
+
+    if (
+      !best ||
+      score > best.score ||
+      (score === best.score &&
+        effectiveReps >
+          best.effectiveReps)
+    ) {
       best = {
         weight,
         reps,
         score,
+        effectiveReps,
       };
     }
   }
@@ -294,8 +301,11 @@ function getBestSet(sets = []) {
 }
 
 // Decide how an exercise progressed from one performance to the next.
-// `current` and `previous` are best-set objects { weight, reps, score }.
+// `current` and `previous` are best-set objects
+// { weight, reps, score, effectiveReps }.
 // Rule: weight up + reps within working range => always "improved".
+// Bodyweight (0 kg) vs bodyweight is judged by reps + RIR; switching
+// between bodyweight and loaded is a new baseline (not comparable).
 function resolveExerciseProgress(
   current,
   previous
@@ -305,6 +315,48 @@ function resolveExerciseProgress(
       status: "new",
       percentageChange: null,
       source: "new",
+    };
+  }
+
+  const currentBodyweight =
+    current.weight === 0;
+
+  const previousBodyweight =
+    previous.weight === 0;
+
+  if (
+    currentBodyweight !==
+    previousBodyweight
+  ) {
+    return {
+      status: "new",
+      percentageChange: null,
+      source: "new",
+    };
+  }
+
+  if (currentBodyweight) {
+    const previousReps =
+      previous.effectiveReps ??
+      previous.reps;
+
+    const currentReps =
+      current.effectiveReps ??
+      current.reps;
+
+    const repsPct =
+      previousReps > 0
+        ? ((currentReps -
+            previousReps) /
+            previousReps) *
+          100
+        : 0;
+
+    return {
+      status:
+        getProgressStatus(repsPct),
+      percentageChange: repsPct,
+      source: "reps",
     };
   }
 
@@ -400,17 +452,24 @@ function compareSet(current, previous) {
   const previousRIR =
     getRIRValue(previous.rir);
 
-  const weightDiff =
+  // Rounded to 2 decimals so float noise never shows (e.g. +0.1999999kg).
+  const roundDiff = (value) =>
+    Math.round(value * 100) / 100;
+
+  const weightDiff = roundDiff(
     currentWeight -
-    previousWeight;
+      previousWeight
+  );
 
-  const repsDiff =
+  const repsDiff = roundDiff(
     currentReps -
-    previousReps;
+      previousReps
+  );
 
-  const rirDiff =
+  const rirDiff = roundDiff(
     currentRIR -
-    previousRIR;
+      previousRIR
+  );
 
   if (
     weightDiff === 0 &&
@@ -493,6 +552,18 @@ function compareSet(current, previous) {
     };
   }
 
+  // Switching between bodyweight and loaded isn't comparable (History
+  // treats it as a new baseline), so a mixed result stays neutral.
+  if (
+    (currentWeight === 0) !==
+    (previousWeight === 0)
+  ) {
+    return {
+      type: "mixed",
+      text: `↔ ${changes.join(" · ")}`,
+    };
+  }
+
   // Mixed result (e.g. weight up but reps or RIR down). If the load went
   // up and the reps are still within the working rep range, count it as
   // progression — same rule as resolveExerciseProgress in History.
@@ -510,19 +581,31 @@ function compareSet(current, previous) {
     }
   }
 
+  // Bodyweight (0 kg) vs bodyweight: e1RM is 0 for both, so judge by
+  // reps + RIR, matching resolveExerciseProgress.
+  const bothBodyweight =
+    currentWeight === 0 &&
+    previousWeight === 0;
+
   const currentScore =
-    calculateE1RM(
-      currentWeight,
-      currentReps,
-      currentRIR
-    );
+    bothBodyweight
+      ? currentReps +
+        currentRIR
+      : calculateE1RM(
+          currentWeight,
+          currentReps,
+          currentRIR
+        );
 
   const previousScore =
-    calculateE1RM(
-      previousWeight,
-      previousReps,
-      previousRIR
-    );
+    bothBodyweight
+      ? previousReps +
+        previousRIR
+      : calculateE1RM(
+          previousWeight,
+          previousReps,
+          previousRIR
+        );
 
   const scoreDifference =
     currentScore -
@@ -1486,6 +1569,7 @@ function App() {
                 weight: currentBest.weight,
                 reps: currentBest.reps,
                 score: currentBest.score,
+                effectiveReps: currentBest.effectiveReps,
                 sessionId: session.id,
                 date: session.date,
               });
@@ -2216,11 +2300,13 @@ function App() {
                     weight: current.weight,
                     reps: current.reps,
                     score: current.score,
+                    effectiveReps: current.effectiveReps,
                   },
                   {
                     weight: previous.weight,
                     reps: previous.reps,
                     score: previous.score,
+                    effectiveReps: previous.effectiveReps,
                   }
                 );
 
@@ -3899,15 +3985,18 @@ function App() {
         currentSet.reps
       );
 
+    // 0 kg is allowed (bodyweight); a set needs at least some reps.
     if (
       !currentSet.completed &&
       (
         weight === null ||
-        reps === null
+        reps === null ||
+        weight < 0 ||
+        reps <= 0
       )
     ) {
       alert(
-        "Enter weight and reps before completing the set."
+        "Enter weight (0 for bodyweight) and reps before completing the set."
       );
 
       return;
