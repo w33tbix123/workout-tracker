@@ -1442,13 +1442,17 @@ select:focus-visible {
 
   z-index: 90;
 
+  /* Top padding clears the fixed back button (top 10px + 38px tall) so
+     the header text never sits under it once the header sticks. The
+     margin is offset by the same amount so the unscrolled layout is
+     unchanged. */
   margin:
-    calc(-18px - env(safe-area-inset-top))
+    calc(-55px - env(safe-area-inset-top))
     -16px
     18px;
 
   padding:
-    calc(15px + env(safe-area-inset-top))
+    calc(52px + env(safe-area-inset-top))
     16px
     13px;
 

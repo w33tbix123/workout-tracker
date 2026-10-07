@@ -5895,13 +5895,15 @@ function App() {
               }
             </h1>
 
+            {/* Duration has its own card below; a bare "· 04:21" here
+                read like a clock time. */}
             <p className="active-workout-started">
               {formatDate(
                 summaryData.completedAt
               )}
-              {" "}·{" "}
-              {formatDuration(
-                summaryData.durationSeconds
+              {" "}· Finished{" "}
+              {formatTime(
+                summaryData.completedAt
               )}
             </p>
           </div>
@@ -6363,7 +6365,7 @@ function App() {
                         {
                           exercise.targetSets
                         }{" "}
-                        working sets ·{" "}
+                        working set{Number(exercise.targetSets) === 1 ? "" : "s"} ·{" "}
                         {
                           exercise.minReps
                         }
@@ -6972,7 +6974,7 @@ function App() {
                     {
                       exercise.targetSets
                     }{" "}
-                    working sets ·{" "}
+                    working set{Number(exercise.targetSets) === 1 ? "" : "s"} ·{" "}
                     {
                       exercise.minReps
                     }
