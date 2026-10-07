@@ -955,6 +955,18 @@ function App() {
   // PREVIOUS PERFORMANCE
   // ============================================================
 
+  // Identifies which day + exercise list the previous-performance data
+  // was built for. Re-runs the query whenever the list changes (not just
+  // its length) and lets Start wait until the data matches.
+  const previousDataKey = `${selectedDayId}:${(
+    exercises || []
+  )
+    .map(
+      (exercise) =>
+        exercise.id
+    )
+    .join(",")}`;
+
   const previousExerciseData =
     useLiveQuery(
       async () => {
@@ -963,6 +975,8 @@ function App() {
           !exercises?.length
         ) {
           return {
+            loadedFor:
+              previousDataKey,
             latestDaySession:
               null,
             exerciseData: {},
@@ -1055,15 +1069,20 @@ function App() {
         }
 
         return {
+          loadedFor:
+            previousDataKey,
           latestDaySession,
           exerciseData,
         };
       },
       [
-        selectedDayId,
-        exercises?.length,
+        previousDataKey,
       ]
     );
+
+  const previousExerciseDataReady =
+    previousExerciseData?.loadedFor ===
+    previousDataKey;
 
   // ============================================================
   // LEARN EXERCISE ORDER
@@ -3176,6 +3195,14 @@ function App() {
   // ============================================================
 
   async function startWorkout() {
+    // Prefill, learned order and the default alternative all come from
+    // the previous-performance data, so don't start without it.
+    if (
+      !previousExerciseDataReady
+    ) {
+      return;
+    }
+
     if (
       pausedWorkout
     ) {
@@ -6533,6 +6560,9 @@ function App() {
               className="start-workout-button fixed-start-workout-button"
               onClick={
                 startWorkout
+              }
+              disabled={
+                !previousExerciseDataReady
               }
             >
               Start{" "}
