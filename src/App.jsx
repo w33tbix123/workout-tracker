@@ -109,14 +109,11 @@ function calculateE1RM(
   );
 }
 
-function formatDate(dateString) {
-  if (!dateString) {
-    return "";
-  }
-
-  return new Date(
-    dateString
-  ).toLocaleDateString(
+// Formatters are created once: toLocaleDateString with options builds a
+// new Intl.DateTimeFormat on every call, which is slow when History
+// renders hundreds of dates. Output is identical.
+const LONG_DATE_FORMAT =
+  new Intl.DateTimeFormat(
     "en-ZA",
     {
       weekday: "long",
@@ -125,6 +122,33 @@ function formatDate(dateString) {
       year: "numeric",
     }
   );
+
+const SHORT_DATE_FORMAT =
+  new Intl.DateTimeFormat(
+    "en-ZA",
+    {
+      day: "numeric",
+      month: "short",
+    }
+  );
+
+const TIME_FORMAT =
+  new Intl.DateTimeFormat(
+    "en-ZA",
+    {
+      hour: "2-digit",
+      minute: "2-digit",
+    }
+  );
+
+function formatDate(dateString) {
+  if (!dateString) {
+    return "";
+  }
+
+  return LONG_DATE_FORMAT.format(
+    new Date(dateString)
+  );
 }
 
 function formatShortDate(dateString) {
@@ -132,14 +156,8 @@ function formatShortDate(dateString) {
     return "";
   }
 
-  return new Date(
-    dateString
-  ).toLocaleDateString(
-    "en-ZA",
-    {
-      day: "numeric",
-      month: "short",
-    }
+  return SHORT_DATE_FORMAT.format(
+    new Date(dateString)
   );
 }
 
@@ -148,14 +166,8 @@ function formatTime(dateString) {
     return "";
   }
 
-  return new Date(
-    dateString
-  ).toLocaleTimeString(
-    "en-ZA",
-    {
-      hour: "2-digit",
-      minute: "2-digit",
-    }
+  return TIME_FORMAT.format(
+    new Date(dateString)
   );
 }
 
@@ -402,6 +414,130 @@ function resolveExerciseProgress(
     percentageChange: pct,
     source: "e1rm",
   };
+}
+
+// The most recent performance of each exercise: for every id, the sets
+// from the newest of `sessions` that contains it (sorted by setNumber).
+// `sessions` must already be sorted newest first. Indexed queries on
+// sets.exerciseId instead of one query per session, which mattered once
+// a day had hundreds of sessions.
+async function findLatestPerformances(
+  exerciseIds,
+  sessions
+) {
+  const latest = new Map();
+
+  if (!exerciseIds.length) {
+    return latest;
+  }
+
+  const rankBySession =
+    new Map(
+      sessions.map(
+        (session, index) => [
+          session.id,
+          index,
+        ]
+      )
+    );
+
+  // One equals() per exercise (native getAll) rather than anyOf(), which
+  // walks a cursor and was several times slower inside a live query.
+  const sets = (
+    await Promise.all(
+      exerciseIds.map(
+        (exerciseId) =>
+          db.sets
+            .where("exerciseId")
+            .equals(exerciseId)
+            .toArray()
+      )
+    )
+  ).flat();
+
+  // Pass 1: the newest session (lowest rank) per exercise.
+  const bestRank =
+    new Map();
+
+  sets.forEach(
+    (set) => {
+      const rank =
+        rankBySession.get(
+          set.sessionId
+        );
+
+      if (
+        rank === undefined
+      ) {
+        return;
+      }
+
+      const current =
+        bestRank.get(
+          set.exerciseId
+        );
+
+      if (
+        current === undefined ||
+        rank < current
+      ) {
+        bestRank.set(
+          set.exerciseId,
+          rank
+        );
+      }
+    }
+  );
+
+  // Pass 2: collect that session's sets.
+  sets.forEach(
+    (set) => {
+      const rank =
+        bestRank.get(
+          set.exerciseId
+        );
+
+      if (
+        rank === undefined ||
+        rankBySession.get(
+          set.sessionId
+        ) !== rank
+      ) {
+        return;
+      }
+
+      if (
+        !latest.has(
+          set.exerciseId
+        )
+      ) {
+        latest.set(
+          set.exerciseId,
+          {
+            session:
+              sessions[rank],
+            sets: [],
+          }
+        );
+      }
+
+      latest
+        .get(set.exerciseId)
+        .sets.push(set);
+    }
+  );
+
+  latest.forEach(
+    (entry) => {
+      entry.sets.sort(
+        (a, b) =>
+          a.setNumber -
+          b.setNumber
+      );
+    }
+  );
+
+  return latest;
 }
 
 // Progress and Monthly treat same-named exercises on different days as
@@ -658,6 +794,8 @@ function getExerciseOrderKey(
   return `exercise:${exercise.id}`;
 }
 
+const HISTORY_PAGE_SIZE = 40;
+
 const EMPTY_EXERCISE_FORM = {
   name: "",
   targetSets: 2,
@@ -757,6 +895,13 @@ function App() {
     historyYear,
     setHistoryYear,
   ] = useState("all");
+
+  // History renders a page at a time; years of workouts as one list made
+  // the tab take seconds to open. Kept across History detail visits.
+  const [
+    historyVisibleCount,
+    setHistoryVisibleCount,
+  ] = useState(HISTORY_PAGE_SIZE);
 
   const [
     selectedProgressExercise,
@@ -1165,46 +1310,22 @@ function App() {
 
         const exerciseData = {};
 
+        const latestPerformances =
+          await findLatestPerformances(
+            exercises.map(
+              (exercise) =>
+                exercise.id
+            ),
+            sessions
+          );
+
         for (
           const exercise of exercises
         ) {
-          let found = null;
-
-          for (
-            const session of sessions
-          ) {
-            const sets =
-              await db.sets
-                .where(
-                  "sessionId"
-                )
-                .equals(
-                  session.id
-                )
-                .filter(
-                  (set) =>
-                    set.exerciseId ===
-                    exercise.id
-                )
-                .toArray();
-
-            if (
-              sets.length
-            ) {
-              sets.sort(
-                (a, b) =>
-                  a.setNumber -
-                  b.setNumber
-              );
-
-              found = {
-                session,
-                sets,
-              };
-
-              break;
-            }
-          }
+          const found =
+            latestPerformances.get(
+              exercise.id
+            ) || null;
 
           const skippedLastWorkout =
             !!latestDaySession
@@ -4791,71 +4912,37 @@ function App() {
     const lastPerformance =
       new Map();
 
-    for (
-      const session of earlierSessions
-    ) {
-      const sessionSets =
-        await db.sets
-          .where("sessionId")
-          .equals(session.id)
-          .toArray();
-
-      const grouped = {};
-
-      sessionSets.forEach(
-        (set) => {
-          if (
-            !grouped[
-              set.exerciseId
-            ]
-          ) {
-            grouped[
-              set.exerciseId
-            ] = [];
-          }
-
-          grouped[
-            set.exerciseId
-          ].push(set);
-        }
+    const latestPerformances =
+      await findLatestPerformances(
+        exerciseIds,
+        earlierSessions
       );
 
-      Object.entries(
-        grouped
-      ).forEach(
-        ([idString, sets]) => {
-          const id = Number(
-            idString
-          );
+    latestPerformances.forEach(
+      ({ session, sets }, id) => {
+        const best =
+          getBestSet(sets);
 
-          if (
-            !lastPerformance.has(
-              id
-            )
-          ) {
-            const best =
-              getBestSet(sets);
-
-            if (best) {
-              lastPerformance.set(
-                id,
-                {
-                  weight:
-                    best.weight,
-                  reps: best.reps,
-                  score:
-                    best.score,
-                  sessionId:
-                    session.id,
-                  date:
-                    session.date,
-                }
-              );
+        if (best) {
+          lastPerformance.set(
+            id,
+            {
+              weight:
+                best.weight,
+              reps: best.reps,
+              score:
+                best.score,
+              effectiveReps:
+                best.effectiveReps,
+              sessionId:
+                session.id,
+              date:
+                session.date,
             }
-          }
+          );
         }
-      );
-    }
+      }
+    );
 
     const exerciseComparisons =
       [];
@@ -7268,21 +7355,29 @@ function App() {
             className="history-search"
             placeholder="Search workouts..."
             value={historySearch}
-            onChange={(event) =>
+            onChange={(event) => {
               setHistorySearch(
                 event.target.value
-              )
-            }
+              );
+
+              setHistoryVisibleCount(
+                HISTORY_PAGE_SIZE
+              );
+            }}
           />
 
           <div className="history-filter-row">
             <select
               value={historyMonth}
-              onChange={(event) =>
+              onChange={(event) => {
                 setHistoryMonth(
                   event.target.value
-                )
-              }
+                );
+
+                setHistoryVisibleCount(
+                  HISTORY_PAGE_SIZE
+                );
+              }}
             >
               <option value="all">
                 All months
@@ -7300,11 +7395,15 @@ function App() {
 
             <select
               value={historyYear}
-              onChange={(event) =>
+              onChange={(event) => {
                 setHistoryYear(
                   event.target.value
-                )
-              }
+                );
+
+                setHistoryVisibleCount(
+                  HISTORY_PAGE_SIZE
+                );
+              }}
             >
               <option value="all">
                 All years
@@ -7330,7 +7429,9 @@ function App() {
         </p>
 
         <div className="session-list">
-          {filteredHistorySessions.map((session) => {
+          {filteredHistorySessions
+            .slice(0, historyVisibleCount)
+            .map((session) => {
             const summary =
               session.progressSummary;
 
@@ -7429,6 +7530,25 @@ function App() {
             );
           })}
         </div>
+
+        {filteredHistorySessions.length >
+          historyVisibleCount && (
+          <button
+            className="history-show-more-button"
+            onClick={() =>
+              setHistoryVisibleCount(
+                (count) =>
+                  count +
+                  HISTORY_PAGE_SIZE
+              )
+            }
+          >
+            Show older workouts (
+            {filteredHistorySessions.length -
+              historyVisibleCount}{" "}
+            more)
+          </button>
+        )}
 
         {filteredHistorySessions.length === 0 && (
           <div className="empty-history">

@@ -1676,6 +1676,30 @@ select:focus-visible {
   transform: scale(0.985);
 }
 
+/* History renders a page at a time; this loads the next page. */
+.history-show-more-button {
+  width: 100%;
+  min-height: 48px;
+
+  margin-top: 12px;
+
+  border: 1px solid var(--line-strong);
+  border-radius: 17px;
+
+  background: var(--surface);
+
+  color: var(--text-soft);
+
+  font-size: 12px;
+  font-weight: 800;
+
+  cursor: pointer;
+}
+
+.history-show-more-button:active {
+  transform: scale(0.985);
+}
+
 /* ============================================================
    PAUSED WORKOUT
    ============================================================ */
