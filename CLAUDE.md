@@ -38,13 +38,14 @@ npm run deploy    # predeploy builds, then gh-pages -d dist
 | `src/main.jsx` | Registers the SW, runs `seedWorkoutData()`, and **on localhost only** runs the three dev helpers below, then renders `<App/>` |
 | `src/db.js` | Dexie `WorkoutTrackerDB`, schema versions 3–5 (current `version(5)`) |
 | `src/seed.js` | Seeds the 4-day Upper/Lower split once (`appMeta.initialSeedComplete`) |
+| `src/confirm.js`, `src/DialogHost.jsx` | In-app confirmation/notice sheet (see §9) |
 | `src/backup.js` | `exportWorkoutBackup` / `importWorkoutBackup` (backup `version: 2`, all 6 tables incl. `appMeta`, import clears + bulkAdds in one transaction) |
 | `src/importCurrentStats.js` | Dev helper: imports the user's baseline stats as sessions (`currentStatsBaselineV1`) |
 | `src/clearTestHistory.js` | Dev helper: deletes test sessions once (`testHistoryCleanupV1`) |
 | `src/fixBaselineDates.js` | Dev helper: corrects baseline session dates once (`baselineDateCorrectionV1`) |
 | `src/App.jsx` | The whole app: helpers, the `App` component, `ExerciseWorkoutCard`, `WorkoutSetRows` |
 | `src/App.css` | All app styling; its `:root` defines the real palette |
-| `src/index.css` | Leftover Vite starter CSS (see §10) |
+| `src/index.css` | Minimal base reset (see §10) |
 | `vite.config.js` | Base path, PWA manifest (WBX Workout Planner / WBX Planner, `#08080b`, standalone, scope `/workout-tracker/`) |
 
 The dev helpers must stay gated to localhost in `main.jsx` and must never run in production.
@@ -117,7 +118,7 @@ Line numbers are approximate; grep for the names.
 During a workout `activeTab` stays `"home"` and the split/day stay selected. Any new screen check placed before Progress must exclude `workoutProgressOpen`, or "Progress" from a workout opens the wrong screen (that was bug c0acef2). `switchTab` does nothing while `activeWorkout` is true, and the bottom nav is hidden during a workout.
 
 ### Render helpers and components
-`renderBottomNav`, `renderPausedWorkoutBanner` (Home only, when nothing is selected and no workout is active), `renderSplitForm`, `renderDayForm`, `renderExerciseForm` (shared by the day screen and the active workout). Components at the bottom of the file: `ExerciseWorkoutCard` (header, Progress/Edit buttons, "Last performed" block, "Skipped last workout") and `WorkoutSetRows` (kg/reps/RIR inputs, done toggle, remove ×, `compareSet` badge for incomplete rows, "Set completed" for completed rows, + Add Set).
+`renderBottomNav` (from `NAV_TABS`), `renderPausedWorkoutBanner` (Home only, when nothing is selected and no workout is active), `renderSplitForm`, `renderDayForm`, `renderExerciseForm` (shared by the day screen and the active workout), `renderManagementCard` (split/day cards), `renderPlanCardActions` (edit/remove icon buttons on the day screen), `renderOptionalSkippedCard` (optional exercise not yet included). Components at the bottom of the file: `BackButton`, `ProgressDirectionIcon`, `ExerciseWorkoutCard` (name, targets, "Skipped last time", Progress/Edit icon buttons, "Last time" block, Done tag) and `WorkoutSetRows` (kg/reps/RIR inputs with aria-labels, done toggle, remove, the `compareSet` line under every row including completed ones, Add set). `compareSet` returns plain text; the direction arrow is rendered as an icon from its `type`.
 
 ## 6. Workout lifecycle
 
@@ -131,7 +132,7 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 
 **Protecting the workout in progress.** `getWorkoutInProgress()` returns the running workout (from state) or the paused draft. Deleting a split or day it belongs to is blocked (`warnWorkoutInProgress`), and so is archiving any exercise/alternative with completed sets in it, whether via Remove on the day screen or by removing alternatives in Edit (`findExercisesWithLoggedSets` + `warnLoggedSets`). Archived exercises are hidden from the workout and skipped on finish, so this is what keeps logged sets from being lost.
 
-**Pause/resume.** An autosave effect writes the draft 150 ms after any workout state change, and immediately on `visibilitychange` (hidden) or `pagehide`, since iOS can suspend a backgrounded PWA at once. It skips while a finish is in progress. Back (`leaveActiveWorkout`) saves and goes Home; Home shows the Resume/Discard banner. A reload always lands on Home (no auto-resume). `resumeWorkout` restores all state from `pausedWorkout` and refuses a removed (missing or archived) day; `discardPausedWorkout` confirms, deletes the draft and calls `resetWorkoutState` (the single in-memory reset, also used by finish).
+**Pause/resume.** An autosave effect writes the draft 150 ms after any workout state change, and immediately on `visibilitychange` (hidden) or `pagehide`, since iOS can suspend a backgrounded PWA at once. It skips while a finish is in progress. Back (`leaveActiveWorkout`) saves and goes Home; Home shows the Resume/Discard banner. A reload always lands on Home (no auto-resume). `resumeWorkout` restores all state from `pausedWorkout` and refuses a removed (missing or archived) day; `discardWorkout` (Home banner, or "Discard workout" under Complete during a workout) confirms, deletes the draft and calls `resetWorkoutState` (the single in-memory reset, also used by finish).
 
 **Finish (`finishWorkout` ~4104 → `saveFinishedWorkout` ~4337).**
 - Walks `orderedExercises`. Collects completed sets (`setNumber` 1..n); skipped = unincluded optionals/groups plus exercises with zero completed sets.
@@ -139,14 +140,14 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 - One Dexie transaction: `sessions.add` + `sets.bulkAdd` + delete the draft. On failure it alerts, writes nothing and keeps the workout open.
 - Then `buildWorkoutSummary` (failure → go to History instead), resets state and shows the summary. The ref is cleared by an effect once `activeWorkout` is false.
 
-**Summary.** Subtitle "<date> · Finished HH:MM", overall %, improved/same/regressed counts, duration, completed sets, volume, exercises/skipped, per-exercise statuses. "View in History"/"← History" go to History.
+**Summary.** Subtitle "Completed <date>, finished HH:MM", overall %, improved/same/regressed counts, duration, completed sets, volume, exercises/skipped, per-exercise statuses. "View in History" and the History back button go to History.
 
 ## 7. Progress, history and navigation details
 
 - **History list:** month/year filters and search, each session's overall progression (or "Baseline workout · N new baselines"). Renders 40 workouts at a time with a "Show older workouts (N more)" button; the count resets when a filter changes and survives opening a History detail. **History detail:** per-exercise status, sets and "Compared with last performed <date>". Skipped exercises are listed as "Skipped".
 - **History → Progress → Back:** `openHistoryExerciseProgress` saves `{sessionId, scrollY}`; `closeHistoryExerciseProgress` reselects the session and restores scroll after two `requestAnimationFrame`s. It works, but headless browsers throttle rAF, so automated tests see the scroll restore late.
-- **Workout → Progress → "← Workout"** toggles `workoutProgressOpen`. The workout's scroll position is not restored.
-- **Progress landing:** exercise search, Month-to-Month Upper/Lower cards with bar charts (green/red), "Not enough monthly data yet" when there's nothing to compare.
+- **Workout → Progress → back ("Workout")** toggles `workoutProgressOpen`. The workout's scroll position is not restored.
+- **Progress landing:** exercise search, Month-to-Month Upper/Lower cards with bar charts (green/red), "Not enough monthly data yet" when there's nothing to compare. Below them, a **Month by month** table (`buildMonthlyRows`) lists every month newest first with Upper and Lower % side by side ("Baseline" when the previous calendar month has no data, "No workouts" for a gap), a 3 / 6 / 12 / All range switch (`monthRange` state, default 3) and a Combined row that compounds the comparable months in range ((1+a)(1+b)-1).
 - **Exercise progress screen:** Best weight, RIR-adjusted 1RM, Sessions, Strength change, Personal Bests (best weight / best reps / best e1RM with dates), e1RM line chart, per-session history.
 - Screens don't otherwise reset scroll on navigation.
 
@@ -186,17 +187,28 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 
 ## 9. UI conventions
 
-- Mobile first, max content width ~460px, iOS safe areas, large touch targets, glassy fixed bottom nav (Home / History / Progress / Settings).
-- Back buttons: fixed, **top-left**, pill-shaped, safe-area aware. Never top-right. Labels are the destination ("← Workouts", "← Workout", "← History", "← 4 Day Upper/Lower Split").
-- No separate Pause button or modal: Back saves the draft.
-- WBX banner only on Home. Green = better, red = worse, grey = same.
-- Many headings and cards are centred because of `#root { text-align: center }` from `index.css`; layouts depend on it.
+The UI was refined in a polish pass (impeccable + taste-skill review, Playwright before/after screenshots). Keep new work in the same system:
 
-## 10. CSS gotchas
+- Mobile first, max content width ~460px, iOS safe areas, large touch targets (icon buttons are 40×40), fixed bottom nav (Home / History / Progress / Settings; the active tab shows a filled icon on a soft coral pill).
+- **Icons:** Phosphor (`@phosphor-icons/react`) only. Never Unicode glyphs or emoji as icons. Icon-only buttons need an `aria-label`. Direction of progress uses the shared `ProgressDirectionIcon`.
+- **Back buttons:** the shared `BackButton` component. Fixed, **top-left**, pill-shaped, safe-area aware, never top-right. The label names the destination (CaretLeft icon + "Workouts", "Workout", "History", the split name).
+- **No eyebrows:** no small uppercase/tracked labels above headings, no decorative dots, no section numbers. Context goes in a `.page-subtitle` under the h1 (e.g. "Monday, 12 exercises"); metric captions use `.metric-label` in sentence case.
+- **Colour:** coral only for primary actions and current selection (`.primary-button`, `.small-add-button`, selected segment, active tab). Green = better, red = worse/destructive, yellow = skipped, blue = baseline, neutral grey = same. History cards carry their result colour (status tile, soft wash, coloured counts). No purple. Chart colours come from `CHART_COLORS` in App.jsx (mirrors the CSS tokens); tooltips use `CHART_TOOLTIP_PROPS`.
+- **Shape:** tokens in `:root`: `--radius-card` (cards), `--radius-inner` (panels inside cards), `--radius-control` (inputs, icon buttons), `--radius-button` (full-width buttons), pills for tags/chips.
+- **Type:** 11px minimum; meta 12-13px; card titles 16px; page h1 28px. All numbers (`set inputs, tables, stats, timer`) use `font-variant-numeric: tabular-nums`. Inputs are 16px so iOS doesn't zoom on focus.
+- **Layout:** everything is left-aligned (the old Vite `#root { text-align: center }` is gone).
+- **Motion** (tokens `--ease-out`, `--dur-fast/--dur/--dur-slow`):
+  - Ticking a set is the one authored moment: the ring fills green with a short pop, and a "Done" tag plus a green card state appear when all of an exercise's sets are ticked.
+  - Screens fade up 8px on arrival (each screen root is keyed, so this runs only on navigation). Bottom sheets slide up. Presses scale to 0.97.
+  - `prefers-reduced-motion` swaps movement for fades and drops the pop.
+  - Don't put `transform` animations on `.app` itself or on fixed children, because they break `position: fixed`. Overlapping dropdowns need their own `z-index` (see `.progress-selector`).
+- **Confirmations and notices:** never `window.confirm` / `window.alert` (embedded browsers block them silently and they look foreign in the installed app). Use `await confirmAction({ title, message, confirmLabel, cancelLabel, tone })` and `await notify({ title, message })` from `src/confirm.js`; `<DialogHost />` (src/DialogHost.jsx, mounted next to `<App />` in main.jsx) renders them as a bottom sheet. Cancel is focused first; Escape or tapping the backdrop cancels. Confirm labels name the action ("Delete split", "Discard workout", "Remove set"); `tone: "danger"` (default) makes it red, `"primary"` coral. Every destructive or data-replacing action confirms: delete split/day, remove exercise, remove an alternative in the editor, lower the set count mid-workout when typed sets would be trimmed, remove a set with values, discard a workout (running or paused), start a workout over a paused one, complete a workout, restore a backup.
+- No separate Pause button or modal: Back saves the draft. WBX banner only on Home.
 
-- `main.jsx` imports `index.css` before `App.jsx` imports `App.css`, so **`App.css`'s `:root` wins** for any variable both define (`--bg`, `--text`, `--accent`, `--shadow`).
-- `index.css` still provides `--text-h` (h1/h2 colour), `--border` (`#root` side borders), `--heading`/`--sans`/`--mono`, the h1/h2 sizes and the `#root` layout. These used to switch to light values when the phone was in light mode, making headings near-black. Since 36c9540 they're always the dark values with `color-scheme: dark`. Don't reintroduce a `prefers-color-scheme` split; the app is dark-only.
-- `App.css` sets `color-scheme: dark` itself too.
+## 10. CSS notes
+
+- `src/index.css` is a minimal base reset (dark-only `color-scheme`, zero margins). All styling and tokens live in `src/App.css`, which is organised by screen with a header comment describing the shape, type and colour rules. Don't reintroduce a `prefers-color-scheme` split; the app is dark-only.
+- The stylesheet was rewritten from ~4,000 lines (with triplicated blocks and dead classes) to ~1,600. Before adding a rule, check for an existing token or shared class (`.card`, `.tag`, `.icon-button`, `.text-button`, `.primary-button`, `.status-text`, `.section-title`, `.metric-label`).
 
 ## 11. Testing and verification
 

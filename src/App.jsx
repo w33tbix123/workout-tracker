@@ -14,12 +14,40 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowsLeftRight,
+  CaretLeft,
+  CaretRight,
+  ChartLineUp,
+  Check,
+  ClockCounterClockwise,
+  DownloadSimple,
+  Equals,
+  Flag,
+  GearSix,
+  House,
+  MagnifyingGlass,
+  PencilSimple,
+  Play,
+  Plus,
+  Trash,
+  UploadSimple,
+  X,
+} from "@phosphor-icons/react";
+
 import { db } from "./db";
 
 import {
   exportWorkoutBackup,
   importWorkoutBackup,
 } from "./backup";
+
+import {
+  confirmAction,
+  notify,
+} from "./confirm.js";
 
 import "./App.css";
 
@@ -540,6 +568,125 @@ async function findLatestPerformances(
   return latest;
 }
 
+const MONTH_RANGES = [
+  {
+    value: 3,
+    label: "3 mo",
+  },
+  {
+    value: 6,
+    label: "6 mo",
+  },
+  {
+    value: 12,
+    label: "12 mo",
+  },
+  {
+    value: "all",
+    label: "All",
+  },
+];
+
+// Rows for the "Month by month" table: one per month that has upper or
+// lower data, newest first, limited to `range` months. `total` combines
+// the comparable monthly changes in the range by compounding them
+// (+10% then +10% is +21%), per body part.
+function buildMonthlyRows(
+  monthlyBodyProgress,
+  range
+) {
+  const rowsByKey =
+    new Map();
+
+  ["upper", "lower"].forEach(
+    (bodyType) => {
+      (
+        monthlyBodyProgress?.[
+          bodyType
+        ]?.months || []
+      ).forEach(
+        (month) => {
+          const row =
+            rowsByKey.get(
+              month.monthKey
+            ) || {
+              monthKey:
+                month.monthKey,
+              monthLabel:
+                month.monthLabel,
+              upper: null,
+              lower: null,
+            };
+
+          row[bodyType] =
+            month;
+
+          rowsByKey.set(
+            month.monthKey,
+            row
+          );
+        }
+      );
+    }
+  );
+
+  const allRows = [
+    ...rowsByKey.values(),
+  ].sort((a, b) =>
+    b.monthKey.localeCompare(
+      a.monthKey
+    )
+  );
+
+  const rows =
+    range === "all"
+      ? allRows
+      : allRows.slice(
+          0,
+          range
+        );
+
+  function compound(bodyType) {
+    const changes = rows
+      .map(
+        (row) =>
+          row[bodyType]
+            ?.percentage
+      )
+      .filter((value) =>
+        Number.isFinite(value)
+      );
+
+    if (!changes.length) {
+      return null;
+    }
+
+    return (
+      (changes.reduce(
+        (product, value) =>
+          product *
+          (1 + value / 100),
+        1
+      ) -
+        1) *
+      100
+    );
+  }
+
+  return {
+    rows,
+    hasMore:
+      allRows.length >
+      rows.length,
+    total: {
+      upper:
+        compound("upper"),
+      lower:
+        compound("lower"),
+    },
+  };
+}
+
 // Progress and Monthly treat same-named exercises on different days as
 // one exercise; names match regardless of case and surrounding spaces.
 function normalizeExerciseName(name) {
@@ -622,7 +769,7 @@ function compareSet(current, previous) {
   ) {
     return {
       type: "same",
-      text: "= Same",
+      text: "Same",
     };
   }
 
@@ -682,7 +829,7 @@ function compareSet(current, previous) {
   ) {
     return {
       type: "improved",
-      text: `↑ ${changes.join(" · ")}`,
+      text: changes.join(" · "),
     };
   }
 
@@ -692,7 +839,7 @@ function compareSet(current, previous) {
   ) {
     return {
       type: "regressed",
-      text: `↓ ${changes.join(" · ")}`,
+      text: changes.join(" · "),
     };
   }
 
@@ -704,7 +851,7 @@ function compareSet(current, previous) {
   ) {
     return {
       type: "mixed",
-      text: `↔ ${changes.join(" · ")}`,
+      text: changes.join(" · "),
     };
   }
 
@@ -720,7 +867,7 @@ function compareSet(current, previous) {
     ) {
       return {
         type: "improved",
-        text: `↑ ${changes.join(" · ")}`,
+        text: changes.join(" · "),
       };
     }
   }
@@ -761,20 +908,20 @@ function compareSet(current, previous) {
   ) {
     return {
       type: "mixed",
-      text: `↔ ${changes.join(" · ")}`,
+      text: changes.join(" · "),
     };
   }
 
   if (scoreDifference > 0) {
     return {
       type: "improved",
-      text: `↑ ${changes.join(" · ")}`,
+      text: changes.join(" · "),
     };
   }
 
   return {
     type: "regressed",
-    text: `↓ ${changes.join(" · ")}`,
+    text: changes.join(" · "),
   };
 }
 
@@ -795,6 +942,62 @@ function getExerciseOrderKey(
 }
 
 const HISTORY_PAGE_SIZE = 40;
+
+const NAV_TABS = [
+  {
+    tab: "home",
+    label: "Home",
+    Icon: House,
+  },
+  {
+    tab: "history",
+    label: "History",
+    Icon: ClockCounterClockwise,
+  },
+  {
+    tab: "progress",
+    label: "Progress",
+    Icon: ChartLineUp,
+  },
+  {
+    tab: "settings",
+    label: "Settings",
+    Icon: GearSix,
+  },
+];
+
+// Chart colours mirror the --green / --red / --muted / --accent tokens in
+// App.css (SVG fill attributes can't read CSS variables reliably).
+const CHART_COLORS = {
+  improved: "#7bd79a",
+  regressed: "#ef747b",
+  same: "#8e9099",
+  accent: "#ef8278",
+  axis: "#8e9099",
+};
+
+const CHART_TOOLTIP_PROPS = {
+  cursor: {
+    stroke: "rgba(255, 255, 255, 0.12)",
+    fill: "rgba(255, 255, 255, 0.04)",
+  },
+  contentStyle: {
+    background: "#20212c",
+    border: "1px solid rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+    padding: "8px 10px",
+    fontSize: 12,
+  },
+  labelStyle: {
+    color: "#8e9099",
+    marginBottom: 2,
+  },
+  itemStyle: {
+    color: "#f6f6f8",
+    padding: 0,
+  },
+};
 
 const EMPTY_EXERCISE_FORM = {
   name: "",
@@ -912,6 +1115,12 @@ function App() {
     progressSearch,
     setProgressSearch,
   ] = useState("");
+
+  // How many months the "Month by month" table shows: 3, 6, 12 or "all".
+  const [
+    monthRange,
+    setMonthRange,
+  ] = useState(3);
 
   const [
     showSplitForm,
@@ -2630,22 +2839,27 @@ function App() {
   }
 
   function warnWorkoutInProgress() {
-    alert(
-      "This is part of the workout in progress. Finish or discard that workout first."
-    );
+    notify({
+      title:
+        "Workout in progress",
+      message:
+        "This is part of the workout in progress. Finish or discard that workout first.",
+    });
   }
 
   function warnLoggedSets(
     exercisesWithSets
   ) {
-    alert(
-      `${exercisesWithSets
+    notify({
+      title:
+        "Can't remove yet",
+      message: `${exercisesWithSets
         .map(
           (exercise) =>
             exercise.name
         )
-        .join(", ")} has completed sets in the workout in progress. Untick those sets or finish the workout before removing it.`
-    );
+        .join(", ")} has completed sets in the workout in progress. Untick those sets or finish the workout before removing it.`,
+    });
   }
 
   function openNewSplit() {
@@ -2681,9 +2895,10 @@ function App() {
       splitName.trim();
 
     if (!name) {
-      alert(
-        "Enter a split name."
-      );
+      notify({
+        title:
+          "Enter a split name.",
+      });
 
       return;
     }
@@ -2727,9 +2942,13 @@ function App() {
     }
 
     const confirmed =
-      window.confirm(
-        `Remove "${split.name}"?\n\nPrevious workout history will stay saved.`
-      );
+      await confirmAction({
+        title: `Delete "${split.name}"?`,
+        message:
+          "Its workout days and exercises are removed from your program. Past workouts stay in History.",
+        confirmLabel:
+          "Delete split",
+      });
 
     if (!confirmed) {
       return;
@@ -2839,9 +3058,10 @@ function App() {
       dayName.trim();
 
     if (!name) {
-      alert(
-        "Enter a workout day name."
-      );
+      notify({
+        title:
+          "Enter a workout day name.",
+      });
 
       return;
     }
@@ -2900,9 +3120,13 @@ function App() {
     }
 
     const confirmed =
-      window.confirm(
-        `Remove "${day.name}"?\n\nPrevious workouts will remain in History.`
-      );
+      await confirmAction({
+        title: `Delete "${day.name}"?`,
+        message:
+          "Its exercises are removed from your program. Past workouts stay in History.",
+        confirmLabel:
+          "Delete day",
+      });
 
     if (!confirmed) {
       return;
@@ -3070,9 +3294,10 @@ function App() {
       exerciseForm.name.trim();
 
     if (!name) {
-      alert(
-        "Enter an exercise name."
-      );
+      notify({
+        title:
+          "Enter an exercise name.",
+      });
 
       return;
     }
@@ -3110,9 +3335,10 @@ function App() {
       exerciseForm.hasAlternative &&
       !alternativeNames.length
     ) {
-      alert(
-        "Enter at least one alternative exercise."
-      );
+      notify({
+        title:
+          "Enter at least one alternative exercise.",
+      });
 
       return;
     }
@@ -3322,6 +3548,82 @@ function App() {
         );
 
         return;
+      }
+
+      if (
+        partnersToArchive.length &&
+        !(await confirmAction({
+          title: `Remove ${partnersToArchive
+            .map(
+              (partner) =>
+                partner.name
+            )
+            .join(" and ")}?`,
+          message:
+            "It's removed as an alternative for this exercise. Its past sets stay in History and Progress.",
+          confirmLabel:
+            "Remove and save",
+        }))
+      ) {
+        return;
+      }
+
+      // Lowering the set count mid-workout trims trailing unticked rows;
+      // ask first if any of them already have values typed in.
+      if (
+        activeWorkout &&
+        resizeExerciseId
+      ) {
+        const rows =
+          workoutSets[
+            current.id
+          ] || [];
+
+        let droppedWithValues = 0;
+
+        for (
+          let index =
+            rows.length - 1;
+          index >=
+            Math.max(
+              1,
+              template.targetSets
+            );
+          index--
+        ) {
+          if (
+            rows[index]
+              .completed
+          ) {
+            break;
+          }
+
+          if (
+            rows[index].weight !==
+              "" ||
+            rows[index].reps !==
+              ""
+          ) {
+            droppedWithValues++;
+          }
+        }
+
+        if (
+          droppedWithValues &&
+          !(await confirmAction({
+            title: `Remove ${droppedWithValues} set${
+              droppedWithValues === 1
+                ? ""
+                : "s"
+            } from this workout?`,
+            message:
+              "Lowering the set count removes the last unticked sets, including values you've entered.",
+            confirmLabel:
+              "Remove and save",
+          }))
+        ) {
+          return;
+        }
       }
 
       if (
@@ -3677,9 +3979,22 @@ function App() {
     }
 
     const confirmed =
-      window.confirm(
-        `Remove "${exercise.name}"?\n\nPrevious workout history will remain.`
-      );
+      await confirmAction({
+        title: `Remove "${
+          toArchive.length > 1
+            ? toArchive
+                .map(
+                  (item) =>
+                    item.name
+                )
+                .join(" / ")
+            : exercise.name
+        }"?`,
+        message:
+          "It's removed from this workout day. Its past sets stay in History and Progress.",
+        confirmLabel:
+          "Remove exercise",
+      });
 
     if (!confirmed) {
       return;
@@ -3774,12 +4089,18 @@ function App() {
       pausedWorkout
     ) {
       const discard =
-        window.confirm(
-          `${
+        await confirmAction({
+          title: `${
             pausedWorkout.workoutDayName ||
             "Another workout"
-          } is already in progress.\n\nPress OK to discard it and start this workout.\n\nPress Cancel to keep the existing workout.`
-        );
+          } is still in progress`,
+          message:
+            "Starting this workout discards the paused one and its unfinished sets.",
+          confirmLabel:
+            "Discard and start",
+          cancelLabel:
+            "Keep paused",
+        });
 
       if (!discard) {
         return;
@@ -4132,9 +4453,10 @@ function App() {
         reps <= 0
       )
     ) {
-      alert(
-        "Enter weight (0 for bodyweight) and reps before completing the set."
-      );
+      notify({
+        title:
+          "Enter weight (0 for bodyweight) and reps before completing the set.",
+      });
 
       return;
     }
@@ -4202,7 +4524,7 @@ function App() {
     );
   }
 
-  function removeSet(
+  async function removeSet(
     exerciseId,
     setIndex
   ) {
@@ -4230,11 +4552,15 @@ function App() {
       hasData
     ) {
       const confirmed =
-        window.confirm(
-          `Remove Set ${
+        await confirmAction({
+          title: `Remove set ${
             setIndex + 1
-          }?\n\nThe values entered for this set will be removed from the current workout.`
-        );
+          }?`,
+          message:
+            "The values entered for this set are removed from this workout.",
+          confirmLabel:
+            "Remove set",
+        });
 
       if (
         !confirmed
@@ -4335,9 +4661,12 @@ function App() {
       !day ||
       day.archived
     ) {
-      alert(
-        "This workout day has been removed, so the workout can't be resumed. You can discard it from Home."
-      );
+      notify({
+        title:
+          "Can't resume",
+        message:
+          "This workout day has been removed, so the workout can't be resumed. You can discard it from Home.",
+      });
 
       return;
     }
@@ -4391,25 +4720,46 @@ function App() {
     );
   }
 
-  async function discardPausedWorkout() {
+  // Discards the paused workout (Home banner) or the running one (the
+  // button under Complete workout). Nothing is saved to History.
+  async function discardWorkout() {
     if (
+      !activeWorkout &&
       !pausedWorkout
     ) {
       return;
     }
 
+    const workoutName =
+      (activeWorkout
+        ? selectedDay?.name
+        : pausedWorkout
+            ?.workoutDayName) ||
+      "this workout";
+
     const confirmed =
-      window.confirm(
-        `Discard ${
-          pausedWorkout.workoutDayName ||
-          "this workout"
-        }?\n\nAll unfinished workout entries will be lost.`
-      );
+      await confirmAction({
+        title: `Discard ${workoutName}?`,
+        message:
+          "Every set you've entered in this workout is deleted and nothing is saved to History. This can't be undone.",
+        confirmLabel:
+          "Discard workout",
+        cancelLabel:
+          "Keep workout",
+      });
 
     if (
       !confirmed
     ) {
       return;
+    }
+
+    // While a workout is running, a pending autosave must not write
+    // the draft back after it is deleted. The effect on activeWorkout
+    // clears the ref once the workout screen has closed.
+    if (activeWorkout) {
+      finishingWorkoutRef.current =
+        true;
     }
 
     await db.appMeta.delete(
@@ -4650,9 +5000,22 @@ function App() {
     );
 
     const confirmed =
-      window.confirm(
-        `Complete this workout?\n\nCompleted sets: ${completedSets.length}\nSkipped exercises: ${skippedExerciseIds.length}\n\nOnly checked sets will be saved as performed.`
-      );
+      await confirmAction({
+        title:
+          "Complete this workout?",
+        message: `${completedSets.length} completed set${
+          completedSets.length === 1
+            ? ""
+            : "s"
+        } will be saved and ${skippedExerciseIds.length} exercise${
+          skippedExerciseIds.length === 1
+            ? " is"
+            : "s are"
+        } marked as skipped.\nOnly ticked sets are saved.`,
+        confirmLabel:
+          "Complete workout",
+        tone: "primary",
+      });
 
     if (
       !confirmed
@@ -4790,9 +5153,11 @@ function App() {
     } catch (error) {
       console.error(error);
 
-      alert(
-        `The workout could not be saved. Nothing was lost; your workout is still open.\n\n${error.message}`
-      );
+      await notify({
+        title:
+          "Workout not saved",
+        message: `Nothing was lost; your workout is still open.\n${error.message}`,
+      });
 
       return false;
     }
@@ -5233,9 +5598,14 @@ function App() {
     }
 
     const confirmed =
-      window.confirm(
-        "Restoring this backup will replace your current workout database. Continue?"
-      );
+      await confirmAction({
+        title:
+          "Restore this backup?",
+        message:
+          "Everything on this device (history, program and any paused workout) will be replaced by the backup. This can't be undone.",
+        confirmLabel:
+          "Replace and restore",
+      });
 
     if (!confirmed) {
       event.target.value =
@@ -5249,15 +5619,21 @@ function App() {
         file
       );
 
-      alert(
-        "Backup restored successfully."
-      );
+      await notify({
+        title:
+          "Backup restored",
+        message:
+          "The app will reload with the restored data.",
+      });
 
       window.location.reload();
     } catch (error) {
-      alert(
-        error.message
-      );
+      await notify({
+        title:
+          "Restore failed",
+        message:
+          error.message,
+      });
     }
 
     event.target.value =
@@ -5293,69 +5669,50 @@ function App() {
   function renderBottomNav() {
     return (
       <nav className="bottom-nav">
-        <button
-          className={
-            activeTab ===
-            "home"
-              ? "active"
-              : ""
-          }
-          onClick={() =>
-            switchTab(
-              "home"
-            )
-          }
-        >
-          Home
-        </button>
+        {NAV_TABS.map(
+          ({
+            tab,
+            label,
+            Icon,
+          }) => {
+            const isActive =
+              activeTab ===
+              tab;
 
-        <button
-          className={
-            activeTab ===
-            "history"
-              ? "active"
-              : ""
-          }
-          onClick={() =>
-            switchTab(
-              "history"
-            )
-          }
-        >
-          History
-        </button>
+            return (
+              <button
+                key={tab}
+                className={
+                  isActive
+                    ? "active"
+                    : ""
+                }
+                aria-current={
+                  isActive
+                    ? "page"
+                    : undefined
+                }
+                onClick={() =>
+                  switchTab(
+                    tab
+                  )
+                }
+              >
+                <Icon
+                  size={23}
+                  weight={
+                    isActive
+                      ? "fill"
+                      : "regular"
+                  }
+                  aria-hidden
+                />
 
-        <button
-          className={
-            activeTab ===
-            "progress"
-              ? "active"
-              : ""
+                {label}
+              </button>
+            );
           }
-          onClick={() =>
-            switchTab(
-              "progress"
-            )
-          }
-        >
-          Progress
-        </button>
-
-        <button
-          className={
-            activeTab ===
-            "settings"
-              ? "active"
-              : ""
-          }
-          onClick={() =>
-            switchTab(
-              "settings"
-            )
-          }
-        >
-          Settings
-        </button>
+        )}
       </nav>
     );
   }
@@ -5379,13 +5736,10 @@ function App() {
     return (
       <div className="paused-workout-banner">
         <div className="paused-workout-banner-copy">
-          <span>
-            WORKOUT IN PROGRESS
-          </span>
-
           <strong>
             {pausedWorkout.workoutDayName ||
-              "Workout"}
+              "Workout"}{" "}
+            in progress
           </strong>
 
           <p>
@@ -5403,17 +5757,217 @@ function App() {
               resumeWorkout
             }
           >
+            <Play
+              size={15}
+              weight="fill"
+              aria-hidden
+            />
             Resume
           </button>
 
           <button
             className="discard-workout-button"
             onClick={
-              discardPausedWorkout
+              discardWorkout
             }
           >
             Discard
           </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // SPLIT / DAY CARD
+  // ============================================================
+
+  function renderManagementCard({
+    key,
+    title,
+    subtitle,
+    onOpen,
+    editLabel,
+    onEdit,
+    onDelete,
+  }) {
+    return (
+      <div
+        className="management-card"
+        key={key}
+      >
+        <button
+          className="management-card-main"
+          onClick={onOpen}
+        >
+          <div>
+            <strong>
+              {title}
+            </strong>
+
+            {subtitle && (
+              <p>
+                {subtitle}
+              </p>
+            )}
+          </div>
+
+          <CaretRight
+            size={18}
+            weight="bold"
+            aria-hidden
+          />
+        </button>
+
+        <div className="management-card-actions">
+          <button
+            onClick={onEdit}
+          >
+            <PencilSimple
+              size={15}
+              aria-hidden
+            />
+            {editLabel}
+          </button>
+
+          <button
+            className="danger"
+            onClick={onDelete}
+          >
+            <Trash
+              size={15}
+              aria-hidden
+            />
+            Delete
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // PLAN CARD ACTIONS (WORKOUT DAY SCREEN)
+  // ============================================================
+
+  function renderPlanCardActions(
+    exercise,
+    name
+  ) {
+    return (
+      <div className="exercise-header-actions">
+        <button
+          className="icon-button"
+          aria-label={`Edit ${name}`}
+          onClick={() =>
+            openEditExercise(
+              exercise
+            )
+          }
+        >
+          <PencilSimple
+            size={18}
+            aria-hidden
+          />
+        </button>
+
+        <button
+          className="icon-button danger"
+          aria-label={`Remove ${name}`}
+          onClick={() =>
+            deleteExercise(
+              exercise
+            )
+          }
+        >
+          <Trash
+            size={18}
+            aria-hidden
+          />
+        </button>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // OPTIONAL EXERCISE (NOT YET INCLUDED)
+  // ============================================================
+
+  // One compact row: name, when it was last done, and Include. Used for
+  // plain optional exercises and optional alternative groups.
+  function renderOptionalSkippedCard({
+    key,
+    title,
+    previousInfo,
+    onInclude,
+    progressName,
+  }) {
+    const lastDate =
+      previousInfo
+        ?.lastPerformedSession
+        ?.date;
+
+    return (
+      <div
+        className="exercise-card optional-card"
+        key={key}
+      >
+        <div className="exercise-top">
+          <div>
+            <h3>
+              {title}
+            </h3>
+
+            <p className="exercise-target optional-meta">
+              <span className="tag">
+                Optional
+              </span>
+
+              <span>
+                {lastDate
+                  ? `Last done ${formatShortDate(
+                      lastDate
+                    )}`
+                  : "Not done yet"}
+              </span>
+
+              {previousInfo?.skippedLastWorkout && (
+                <span className="skipped-note">
+                  Skipped last time
+                </span>
+              )}
+            </p>
+          </div>
+
+          <div className="exercise-header-actions">
+            {progressName && (
+              <button
+                className="icon-button"
+                aria-label={`Progress for ${progressName}`}
+                onClick={() =>
+                  openWorkoutExerciseProgress(
+                    progressName
+                  )
+                }
+              >
+                <ChartLineUp
+                  size={19}
+                  aria-hidden
+                />
+              </button>
+            )}
+
+            <button
+              className="include-button"
+              onClick={onInclude}
+            >
+              <Plus
+                size={15}
+                weight="bold"
+                aria-hidden
+              />
+              Include
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -5432,7 +5986,7 @@ function App() {
 
     return (
       <div className="form-overlay">
-        <div className="form-sheet">
+        <div role="dialog" aria-modal="true" className="form-sheet">
           <h2>
             {editingSplitId
               ? "Edit Split"
@@ -5502,7 +6056,7 @@ function App() {
 
     return (
       <div className="form-overlay">
-        <div className="form-sheet">
+        <div role="dialog" aria-modal="true" className="form-sheet">
           <h2>
             {editingDayId
               ? "Edit Workout Day"
@@ -5637,7 +6191,7 @@ function App() {
 
     return (
       <div className="form-overlay">
-        <div className="form-sheet exercise-form-sheet">
+        <div role="dialog" aria-modal="true" className="form-sheet exercise-form-sheet">
           <h2>
             {editingExerciseId
               ? "Edit Exercise"
@@ -5913,8 +6467,13 @@ function App() {
                             })
                           );
                         }}
+                        aria-label={`Remove ${alternative || "alternative"}`}
                       >
-                        ×
+                        <X
+                          size={16}
+                          weight="bold"
+                          aria-hidden
+                        />
                       </button>
                     )}
                   </div>
@@ -5954,7 +6513,12 @@ function App() {
                   );
                 }}
               >
-                + Add another alternative
+                <Plus
+                  size={15}
+                  weight="bold"
+                  aria-hidden
+                />
+                Add another alternative
               </button>
             </>
           )}
@@ -6008,33 +6572,31 @@ function App() {
           );
 
     return (
-      <div className="app summary-app app-with-fixed-back">
-        <button
-          className="back-button"
+      <div
+        className="app summary-app app-with-fixed-back"
+        key="summary"
+      >
+        <BackButton
+          label="History"
           onClick={closeSummary}
-        >
-          ← History
-        </button>
+        />
 
         <header className="topbar summary-header">
           <div>
-            <p className="eyebrow">
-              WORKOUT COMPLETE
-            </p>
-
             <h1>
               {
                 summaryData.workoutDayName
               }
             </h1>
 
-            {/* Duration has its own card below; a bare "· 04:21" here
+            {/* Duration has its own stat below; a bare "· 04:21" here
                 read like a clock time. */}
-            <p className="active-workout-started">
+            <p className="page-subtitle">
+              Completed{" "}
               {formatDate(
                 summaryData.completedAt
               )}
-              {" "}· Finished{" "}
+              , finished{" "}
               {formatTime(
                 summaryData.completedAt
               )}
@@ -6043,143 +6605,159 @@ function App() {
         </header>
 
         <section className="summary-overall-card">
-          <p className="card-label">
-            OVERALL PROGRESSION
+          <p className="metric-label">
+            Overall progression
           </p>
 
           {summaryData.overallPercentage ===
           null ? (
-            <h2 className="muted">
+            <h2 className="summary-overall-value baseline">
               New baseline
             </h2>
           ) : (
             <h2
               className={`summary-overall-value ${summaryStatus}`}
             >
+              <ProgressDirectionIcon
+                status={
+                  summaryStatus
+                }
+                size={22}
+              />
               {formatProgressPercentage(
                 summaryData.overallPercentage
               )}
-              {" "}overall
             </h2>
           )}
 
           <p className="summary-counts">
             {summaryData.improved}{" "}
-            improved ·{" "}
+            improved,{" "}
             {summaryData.same}{" "}
-            same ·{" "}
+            same,{" "}
             {summaryData.regressed}{" "}
             regressed
           </p>
-        </section>
 
-        <section className="summary-stats-grid">
-          <div className="stat-card">
-            <span>
-              Duration
-            </span>
+          <dl className="summary-stats">
+            <div>
+              <dt>
+                Duration
+              </dt>
 
-            <strong>
-              {formatDuration(
-                summaryData.durationSeconds
-              )}
-            </strong>
-          </div>
-
-          <div className="stat-card">
-            <span>
-              Completed Sets
-            </span>
-
-            <strong>
-              {
-                summaryData.completedSetCount
-              }
-            </strong>
-          </div>
-
-          <div className="stat-card">
-            <span>
-              Volume
-            </span>
-
-            <strong>
-              {Math.round(
-                summaryData.totalVolume
-              )}{" "}
-              kg
-            </strong>
-          </div>
-
-          <div className="stat-card">
-            <span>
-              Exercises
-            </span>
-
-            <strong>
-              {summaryData.exerciseCount}{" "}
-              <small className="summary-stat-small">
-                /{" "}
-                {
-                  summaryData
-                    .skippedExerciseIds
-                    .length
-                }{" "}
-                skipped
-              </small>
-            </strong>
-          </div>
-        </section>
-
-        <section className="summary-exercise-section">
-          <h3>
-            Exercise breakdown
-          </h3>
-
-          {summaryData.exerciseComparisons.map(
-            (comparison) => (
-              <div
-                className="summary-exercise-row"
-                key={
-                  comparison.exerciseId
-                }
-              >
-                <span className="summary-exercise-name">
-                  {
-                    comparison.exerciseName
-                  }
-                </span>
-
-                {comparison.status ===
-                "new" ? (
-                  <span className="history-exercise-status same">
-                    New baseline
-                  </span>
-                ) : (
-                  <span
-                    className={`history-exercise-status ${comparison.status}`}
-                  >
-                    {comparison.status ===
-                    "improved"
-                      ? "↑ Improved"
-                      : comparison.status ===
-                        "regressed"
-                      ? "↓ Regressed"
-                      : "= Same"}{" "}
-                    {comparison.percentageChange !==
-                    null &&
-                      formatProgressPercentage(
-                        comparison.percentageChange
-                      )}
-                  </span>
+              <dd>
+                {formatDuration(
+                  summaryData.durationSeconds
                 )}
-              </div>
-            )
-          )}
+              </dd>
+            </div>
+
+            <div>
+              <dt>
+                Sets
+              </dt>
+
+              <dd>
+                {
+                  summaryData.completedSetCount
+                }
+              </dd>
+            </div>
+
+            <div>
+              <dt>
+                Volume
+              </dt>
+
+              <dd>
+                {Math.round(
+                  summaryData.totalVolume
+                )}{" "}
+                <small>
+                  kg
+                </small>
+              </dd>
+            </div>
+
+            <div>
+              <dt>
+                Exercises
+              </dt>
+
+              <dd>
+                {summaryData.exerciseCount}
+                {summaryData
+                  .skippedExerciseIds
+                  .length > 0 && (
+                  <small>
+                    {" "}
+                    (
+                    {
+                      summaryData
+                        .skippedExerciseIds
+                        .length
+                    }{" "}
+                    skipped)
+                  </small>
+                )}
+              </dd>
+            </div>
+          </dl>
         </section>
+
+        {summaryData.exerciseComparisons.length >
+          0 && (
+          <section className="summary-exercise-section">
+            <h3 className="section-title">
+              Exercises
+            </h3>
+
+            <div className="row-list">
+              {summaryData.exerciseComparisons.map(
+                (comparison) => (
+                  <div
+                    className="summary-exercise-row"
+                    key={
+                      comparison.exerciseId
+                    }
+                  >
+                    <span className="summary-exercise-name">
+                      {
+                        comparison.exerciseName
+                      }
+                    </span>
+
+                    {comparison.status ===
+                    "new" ? (
+                      <span className="status-text new">
+                        New baseline
+                      </span>
+                    ) : (
+                      <span
+                        className={`status-text ${comparison.status}`}
+                      >
+                        <ProgressDirectionIcon
+                          status={
+                            comparison.status
+                          }
+                        />
+                        {comparison.percentageChange !==
+                        null
+                          ? formatProgressPercentage(
+                              comparison.percentageChange
+                            )
+                          : "Same"}
+                      </span>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+          </section>
+        )}
 
         <button
-          className="summary-done-button"
+          className="primary-button summary-done-button"
           onClick={closeSummary}
         >
           View in History
@@ -6200,46 +6778,46 @@ function App() {
       new Set();
 
     return (
-      <div className="app active-workout-app app-with-fixed-back">
-        <button
-          className="back-button"
+      <div
+        className="app active-workout-app app-with-fixed-back"
+        key="workout"
+      >
+        <BackButton
+          label="Workouts"
           onClick={
             leaveActiveWorkout
           }
-        >
-          ← Workouts
-        </button>
+        />
 
         <header className="topbar active-workout-header">
           <div>
-            <p className="eyebrow">
-              ACTIVE WORKOUT
-            </p>
-
             <h1>
               {selectedDay?.name}
             </h1>
 
-            <p className="active-workout-started">
+            <p className="page-subtitle">
               Started{" "}
               {formatTime(
                 workoutStartedAt
-              )}{" "}
-              ·{" "}
-              <span className="workout-live-timer">
-                {formatDuration(
-                  nowTick &&
-                    workoutStartedAt
-                    ? (nowTick -
-                        new Date(
-                          workoutStartedAt
-                        ).getTime()) /
-                        1000
-                    : 0
-                )}
-              </span>
+              )}
             </p>
           </div>
+
+          <span
+            className="workout-live-timer"
+            aria-label="Elapsed time"
+          >
+            {formatDuration(
+              nowTick &&
+                workoutStartedAt
+                ? (nowTick -
+                    new Date(
+                      workoutStartedAt
+                    ).getTime()) /
+                    1000
+                : 0
+            )}
+          </span>
         </header>
 
         <section className="exercise-list">
@@ -6297,55 +6875,20 @@ function App() {
                     selectedExercise
                   )
                 ) {
-                  return (
-                    <div
-                      className="exercise-card optional-during-workout-card"
-                      key={
-                        exercise.alternativeGroup
-                      }
-                    >
-                      <span className="optional-badge">
-                        Optional
-                      </span>
-
-                      <h3>
-                        {group
-                          .map(
-                            (item) =>
-                              item.name
-                          )
-                          .join(" / ")}
-                      </h3>
-
-                      {previousInfo?.skippedLastWorkout && (
-                        <div className="skipped-last-workout">
-                          Skipped last workout
-                        </div>
-                      )}
-
-                      {previousInfo?.lastPerformedSession && (
-                        <div className="last-performed-summary">
-                          Last performed{" "}
-                          {formatDate(
-                            previousInfo
-                              .lastPerformedSession
-                              .date
-                          )}
-                        </div>
-                      )}
-
-                      <button
-                        className="include-workout-exercise-button"
-                        onClick={() =>
-                          includeOptionalExercise(
-                            optionalGroupKey
-                          )
-                        }
-                      >
-                        Include Exercise
-                      </button>
-                    </div>
-                  );
+                  return renderOptionalSkippedCard({
+                    key: exercise.alternativeGroup,
+                    title: group
+                      .map(
+                        (item) =>
+                          item.name
+                      )
+                      .join(" / "),
+                    previousInfo,
+                    onInclude: () =>
+                      includeOptionalExercise(
+                        optionalGroupKey
+                      ),
+                  });
                 }
 
                 return (
@@ -6357,12 +6900,12 @@ function App() {
                   >
                     {selectedExercise.optional && (
                       <div className="optional-active-top">
-                        <span className="optional-badge">
+                        <span className="tag">
                           Optional
                         </span>
 
                         <button
-                          className="skip-workout-exercise-button"
+                          className="text-button"
                           onClick={() =>
                             skipOptionalExercise(
                               optionalGroupKey
@@ -6374,17 +6917,21 @@ function App() {
                       </div>
                     )}
 
-                    <span className="alternative-label">
-                      ALTERNATIVE
-                    </span>
-
-                    <div className="workout-alternative-picker">
+                    <div
+                      className="workout-alternative-picker"
+                      role="group"
+                      aria-label="Choose exercise"
+                    >
                       {group.map(
                         (
                           option
                         ) => (
                           <button
                             key={
+                              option.id
+                            }
+                            aria-pressed={
+                              selectedId ===
                               option.id
                             }
                             className={`workout-alternative-option ${
@@ -6460,78 +7007,17 @@ function App() {
                 if (
                   !included
                 ) {
-                  return (
-                    <div
-                      className="exercise-card optional-during-workout-card"
-                      key={
+                  return renderOptionalSkippedCard({
+                    key: exercise.id,
+                    title: exercise.name,
+                    previousInfo,
+                    onInclude: () =>
+                      includeOptionalExercise(
                         exercise.id
-                      }
-                    >
-                      <span className="optional-badge">
-                        Optional
-                      </span>
-
-                      <h3>
-                        {
-                          exercise.name
-                        }
-                      </h3>
-
-                      {previousInfo?.skippedLastWorkout && (
-                        <div className="skipped-last-workout">
-                          Skipped last workout
-                        </div>
-                      )}
-
-                      {previousInfo?.lastPerformedSession && (
-                        <div className="last-performed-summary">
-                          Last performed{" "}
-                          {formatDate(
-                            previousInfo
-                              .lastPerformedSession
-                              .date
-                          )}
-                        </div>
-                      )}
-
-                      <p className="exercise-target">
-                        {
-                          exercise.targetSets
-                        }{" "}
-                        working set{Number(exercise.targetSets) === 1 ? "" : "s"} ·{" "}
-                        {
-                          exercise.minReps
-                        }
-                        -
-                        {
-                          exercise.maxReps
-                        }{" "}
-                        reps
-                      </p>
-
-                      <button
-                        className="include-workout-exercise-button"
-                        onClick={() =>
-                          includeOptionalExercise(
-                            exercise.id
-                          )
-                        }
-                      >
-                        Include Exercise
-                      </button>
-
-                      <button
-                        className="exercise-progress-button optional-progress-button"
-                        onClick={() =>
-                          openWorkoutExerciseProgress(
-                            exercise.name
-                          )
-                        }
-                      >
-                        Progress
-                      </button>
-                    </div>
-                  );
+                      ),
+                    progressName:
+                      exercise.name,
+                  });
                 }
 
                 return (
@@ -6542,12 +7028,12 @@ function App() {
                     }
                   >
                     <div className="optional-active-top">
-                      <span className="optional-badge">
+                      <span className="tag">
                         Optional
                       </span>
 
                       <button
-                        className="skip-workout-exercise-button"
+                        className="text-button"
                         onClick={() =>
                           skipOptionalExercise(
                             exercise.id
@@ -6647,11 +7133,16 @@ function App() {
           className="add-workout-exercise-button"
           onClick={openNewExercise}
         >
-          + Add Exercise
+          <Plus
+            size={16}
+            weight="bold"
+            aria-hidden
+          />
+          Add exercise
         </button>
 
         <button
-          className="finish-workout-button"
+          className="primary-button finish-workout-button"
           onClick={
             finishWorkout
           }
@@ -6659,9 +7150,30 @@ function App() {
             finishingWorkout
           }
         >
+          <Check
+            size={18}
+            weight="bold"
+            aria-hidden
+          />
           {finishingWorkout
             ? "Saving…"
-            : "Complete Workout"}
+            : "Complete workout"}
+        </button>
+
+        <button
+          className="discard-active-workout-button"
+          onClick={
+            discardWorkout
+          }
+          disabled={
+            finishingWorkout
+          }
+        >
+          <Trash
+            size={15}
+            aria-hidden
+          />
+          Discard workout
         </button>
 
         {renderExerciseForm()}
@@ -6734,24 +7246,21 @@ function App() {
           );
 
     return (
-      <div className="app app-with-fixed-back">
-        <button
-          className="back-button"
+      <div
+        className="app app-with-fixed-back"
+        key="history-detail"
+      >
+        <BackButton
+          label="History"
           onClick={() =>
             setSelectedHistorySessionId(
               null
             )
           }
-        >
-          ← History
-        </button>
+        />
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              WORKOUT HISTORY
-            </p>
-
             <h1>
               {selectedHistorySession
                 ?.workoutDay
@@ -6759,7 +7268,7 @@ function App() {
                 "Workout"}
             </h1>
 
-            <p className="history-date">
+            <p className="page-subtitle">
               {selectedHistorySession
                 ? formatDate(
                     selectedHistorySession
@@ -6772,46 +7281,47 @@ function App() {
         </header>
 
         {selectedHistorySummary && (
-          <section className="history-progress-summary-card">
+          <section
+            className={`history-progress-summary-card status-${summaryOverallStatus}`}
+          >
             {selectedHistorySummary.comparableCount > 0 ? (
               <>
                 <div className="history-progress-summary-top">
-                  <span>OVERALL PROGRESSION</span>
+                  <span className="metric-label">
+                    Overall progression
+                  </span>
 
                   <strong
-                    className={`history-overall-${summaryOverallStatus}`}
+                    className={`status-text ${summaryOverallStatus}`}
                   >
+                    <ProgressDirectionIcon
+                      status={
+                        summaryOverallStatus
+                      }
+                      size={18}
+                    />
                     {formatProgressPercentage(
                       summaryOverall
                     )}
                   </strong>
                 </div>
 
-                <div className="history-progress-counts">
-                  <span className="history-count-improved">
-                    {selectedHistorySummary.improved} improved
-                  </span>
-
-                  <span className="history-count-same">
-                    {selectedHistorySummary.same} same
-                  </span>
-
-                  <span className="history-count-regressed">
-                    {selectedHistorySummary.regressed} regressed
-                  </span>
-
-                  {selectedHistorySummary.newCount > 0 && (
-                    <span className="history-count-new">
-                      {selectedHistorySummary.newCount} new
-                    </span>
-                  )}
-                </div>
+                <p className="summary-counts">
+                  <ProgressCounts
+                    summary={
+                      selectedHistorySummary
+                    }
+                  />
+                </p>
               </>
             ) : (
               <>
                 <div className="history-progress-summary-top">
-                  <span>OVERALL PROGRESSION</span>
-                  <strong className="history-overall-baseline">
+                  <span className="metric-label">
+                    Overall progression
+                  </span>
+
+                  <strong className="status-text baseline">
                     Baseline
                   </strong>
                 </div>
@@ -6860,50 +7370,49 @@ function App() {
                         {exercise.name}
                       </h3>
 
-                      {status === "improved" && (
-                        <div className="history-exercise-status improved">
-                          ↑ Improved {formatProgressPercentage(
-                            comparison.percentageChange
-                          )}
-                        </div>
-                      )}
-
-                      {status === "same" && (
-                        <div className="history-exercise-status same">
-                          = Same
-                        </div>
-                      )}
-
-                      {status === "regressed" && (
-                        <div className="history-exercise-status regressed">
-                          ↓ Regressed {formatProgressPercentage(
-                            comparison.percentageChange
-                          )}
+                      {(status === "improved" ||
+                        status === "same" ||
+                        status === "regressed") && (
+                        <div
+                          className={`status-text ${status}`}
+                        >
+                          <ProgressDirectionIcon
+                            status={status}
+                          />
+                          {status === "same"
+                            ? "Same"
+                            : formatProgressPercentage(
+                                comparison.percentageChange
+                              )}
                         </div>
                       )}
 
                       {status === "new" && (
-                        <div className="history-exercise-status new">
+                        <div className="status-text new">
                           New baseline
                         </div>
                       )}
 
                       {status === "skipped" && (
-                        <div className="history-exercise-status skipped">
+                        <div className="status-text skipped">
                           Skipped
                         </div>
                       )}
                     </div>
 
                     <button
-                      className="exercise-progress-button history-progress-button"
+                      className="icon-button"
+                      aria-label={`Progress for ${exercise.name}`}
                       onClick={() =>
                         openHistoryExerciseProgress(
                           exercise.name
                         )
                       }
                     >
-                      Progress
+                      <ChartLineUp
+                        size={19}
+                        aria-hidden
+                      />
                     </button>
                   </div>
 
@@ -6920,7 +7429,9 @@ function App() {
                             </span>
 
                             <strong>
-                              {set.weight} kg × {set.reps}
+                              {set.weight} kg
+                              {" × "}
+                              {set.reps}
                             </strong>
 
                             <span>
@@ -6965,35 +7476,40 @@ function App() {
       new Set();
 
     return (
-      <div className="app workout-preview-app app-with-fixed-back">
-        <button
-          className="back-button"
+      <div
+        className="app workout-preview-app app-with-fixed-back"
+        key="day"
+      >
+        <BackButton
+          label={
+            selectedSplit?.name ||
+            "Split"
+          }
           onClick={() =>
             setSelectedDayId(
               null
             )
           }
-        >
-          ←{" "}
-          {selectedSplit?.name ||
-            "Split"}
-        </button>
+        />
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              {selectedDay?.dayOfWeek ||
-                "WORKOUT"}
-            </p>
-
             <h1>
               {selectedDay?.name}
             </h1>
+
+            <p className="page-subtitle">
+              {selectedDay?.dayOfWeek ||
+                "Flexible day"}
+              {exercises?.length
+                ? `, ${getCurrentUniqueOrderKeys().length} exercises`
+                : ""}
+            </p>
           </div>
         </header>
 
         <div className="manage-header">
-          <h3>
+          <h3 className="section-title">
             Exercises
           </h3>
 
@@ -7003,7 +7519,12 @@ function App() {
               openNewExercise
             }
           >
-            + Add Exercise
+            <Plus
+              size={15}
+              weight="bold"
+              aria-hidden
+            />
+            Add
           </button>
         </div>
 
@@ -7030,55 +7551,59 @@ function App() {
                     exercise.alternativeGroup
                   ] || [];
 
+                const groupName =
+                  group
+                    .map(
+                      (
+                        option
+                      ) =>
+                        option.name
+                    )
+                    .join(
+                      " / "
+                    );
+
                 return (
                   <div
-                    className="exercise-card"
+                    className="exercise-card plan-card"
                     key={
                       exercise.alternativeGroup
                     }
                   >
-                    <span className="alternative-label">
-                      ALTERNATIVE
-                    </span>
+                    <div className="exercise-top">
+                      <div>
+                        <h3>
+                          {groupName}
+                        </h3>
 
-                    <h3>
-                      {group
-                        .map(
-                          (
-                            option
-                          ) =>
-                            option.name
-                        )
-                        .join(
-                          " / "
-                        )}
-                    </h3>
+                        <p className="exercise-target">
+                          Choose one during the workout
+                        </p>
 
-                    <p className="exercise-target">
-                      Choose during workout
-                    </p>
+                        <div className="exercise-details">
+                          <span className="tag">
+                            <ArrowsLeftRight
+                              size={12}
+                              weight="bold"
+                              aria-hidden
+                            />
+                            {group.length}{" "}
+                            alternatives
+                          </span>
 
-                    <div className="manage-actions">
-                      <button
-                        onClick={() =>
-                          openEditExercise(
-                            group[0]
-                          )
-                        }
-                      >
-                        Edit
-                      </button>
+                          {group[0]
+                            ?.optional && (
+                            <span className="tag">
+                              Optional
+                            </span>
+                          )}
+                        </div>
+                      </div>
 
-                      <button
-                        className="danger-text"
-                        onClick={() =>
-                          deleteExercise(
-                            group[0]
-                          )
-                        }
-                      >
-                        Remove
-                      </button>
+                      {renderPlanCardActions(
+                        group[0],
+                        groupName
+                      )}
                     </div>
                   </div>
                 );
@@ -7086,85 +7611,70 @@ function App() {
 
               return (
                 <div
-                  className="exercise-card"
+                  className="exercise-card plan-card"
                   key={
                     exercise.id
                   }
                 >
-                  {exercise.optional && (
-                    <span className="optional-badge">
-                      Optional
-                    </span>
-                  )}
-
-                  <h3>
-                    {
-                      exercise.name
-                    }
-                  </h3>
-
-                  <p className="exercise-target">
-                    {
-                      exercise.targetSets
-                    }{" "}
-                    working set{Number(exercise.targetSets) === 1 ? "" : "s"} ·{" "}
-                    {
-                      exercise.minReps
-                    }
-                    -
-                    {
-                      exercise.maxReps
-                    }{" "}
-                    reps
-                  </p>
-
-                  <div className="exercise-details">
-                    {Number(
-                      exercise.warmupSets
-                    ) > 0 && (
-                      <span>
+                  <div className="exercise-top">
+                    <div>
+                      <h3>
                         {
-                          exercise.warmupSets
+                          exercise.name
+                        }
+                      </h3>
+
+                      <p className="exercise-target">
+                        {
+                          exercise.targetSets
                         }{" "}
-                        warmup set
+                        {Number(
+                          exercise.targetSets
+                        ) === 1
+                          ? "set"
+                          : "sets"}
+                        {" of "}
+                        {
+                          exercise.minReps
+                        }
+                        -
+                        {
+                          exercise.maxReps
+                        }{" "}
+                        reps
+                      </p>
+
+                      <div className="exercise-details">
+                        {exercise.optional && (
+                          <span className="tag">
+                            Optional
+                          </span>
+                        )}
+
+                        <span className="tag">
+                          RIR{" "}
+                          {
+                            exercise.targetRIR
+                          }
+                        </span>
+
                         {Number(
                           exercise.warmupSets
-                        ) ===
-                        1
-                          ? ""
-                          : "s"}
-                      </span>
+                        ) > 0 && (
+                          <span className="tag">
+                            {
+                              exercise.warmupSets
+                            }{" "}
+                            warm-up
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {renderPlanCardActions(
+                      exercise,
+                      exercise.name
                     )}
-
-                    <span>
-                      RIR:{" "}
-                      {
-                        exercise.targetRIR
-                      }
-                    </span>
-                  </div>
-
-                  <div className="manage-actions">
-                    <button
-                      onClick={() =>
-                        openEditExercise(
-                          exercise
-                        )
-                      }
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      className="danger-text"
-                      onClick={() =>
-                        deleteExercise(
-                          exercise
-                        )
-                      }
-                    >
-                      Remove
-                    </button>
                   </div>
                 </div>
               );
@@ -7175,7 +7685,7 @@ function App() {
         {!!exercises?.length && (
           <div className="fixed-start-workout-area">
             <button
-              className="start-workout-button fixed-start-workout-button"
+              className="primary-button start-workout-button fixed-start-workout-button"
               onClick={
                 startWorkout
               }
@@ -7183,6 +7693,11 @@ function App() {
                 !previousExerciseDataReady
               }
             >
+              <Play
+                size={16}
+                weight="fill"
+                aria-hidden
+              />
               Start{" "}
               {selectedDay?.name}
             </button>
@@ -7206,24 +7721,21 @@ function App() {
     !workoutProgressOpen
   ) {
     return (
-      <div className="app app-with-fixed-back">
-        <button
-          className="back-button"
+      <div
+        className="app app-with-fixed-back"
+        key="split"
+      >
+        <BackButton
+          label="Workouts"
           onClick={() =>
             setSelectedSplitId(
               null
             )
           }
-        >
-          ← Workouts
-        </button>
+        />
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              WORKOUT SPLIT
-            </p>
-
             <h1>
               {selectedSplit?.name}
             </h1>
@@ -7231,8 +7743,8 @@ function App() {
         </header>
 
         <div className="manage-header">
-          <h3>
-            Workout Days
+          <h3 className="section-title">
+            Workout days
           </h3>
 
           <button
@@ -7241,69 +7753,38 @@ function App() {
               openNewDay
             }
           >
-            + Add Day
+            <Plus
+              size={15}
+              weight="bold"
+              aria-hidden
+            />
+            Add day
           </button>
         </div>
 
         <div className="session-list">
           {workoutDays?.map(
-            (day) => (
-              <div
-                className="management-card"
-                key={
-                  day.id
-                }
-              >
-                <button
-                  className="management-card-main"
-                  onClick={() =>
-                    setSelectedDayId(
-                      day.id
-                    )
-                  }
-                >
-                  <div>
-                    <strong>
-                      {
-                        day.name
-                      }
-                    </strong>
-
-                    <p>
-                      {day.dayOfWeek ||
-                        "Flexible"}
-                    </p>
-                  </div>
-
-                  <span>
-                    ›
-                  </span>
-                </button>
-
-                <div className="management-card-actions">
-                  <button
-                    onClick={() =>
-                      openEditDay(
-                        day
-                      )
-                    }
-                  >
-                    Edit
-                  </button>
-
-                  <button
-                    className="danger-text"
-                    onClick={() =>
-                      deleteDay(
-                        day
-                      )
-                    }
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            )
+            (day) =>
+              renderManagementCard({
+                key: day.id,
+                title: day.name,
+                subtitle:
+                  day.dayOfWeek ||
+                  "Flexible day",
+                onOpen: () =>
+                  setSelectedDayId(
+                    day.id
+                  ),
+                editLabel: "Edit",
+                onEdit: () =>
+                  openEditDay(
+                    day
+                  ),
+                onDelete: () =>
+                  deleteDay(
+                    day
+                  ),
+              })
           )}
         </div>
 
@@ -7337,13 +7818,12 @@ function App() {
     ];
 
     return (
-      <div className="app">
+      <div
+        className="app"
+        key="history"
+      >
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              WBX WORKOUT PLANNER
-            </p>
-
             <h1>
               History
             </h1>
@@ -7351,9 +7831,17 @@ function App() {
         </header>
 
         <section className="history-filters">
-          <input
-            className="history-search"
-            placeholder="Search workouts..."
+          <div className="search-field">
+            <MagnifyingGlass
+              size={17}
+              aria-hidden
+            />
+
+            <input
+              className="history-search"
+              type="search"
+              aria-label="Search workouts"
+              placeholder="Search workouts"
             value={historySearch}
             onChange={(event) => {
               setHistorySearch(
@@ -7364,10 +7852,12 @@ function App() {
                 HISTORY_PAGE_SIZE
               );
             }}
-          />
+            />
+          </div>
 
           <div className="history-filter-row">
             <select
+              aria-label="Month"
               value={historyMonth}
               onChange={(event) => {
                 setHistoryMonth(
@@ -7394,6 +7884,7 @@ function App() {
             </select>
 
             <select
+              aria-label="Year"
               value={historyYear}
               onChange={(event) => {
                 setHistoryYear(
@@ -7447,7 +7938,7 @@ function App() {
 
             return (
               <button
-                className="session-card workout-day-button history-workout-summary-card"
+                className={`session-card history-workout-summary-card status-${overallStatus}`}
                 key={session.id}
                 onClick={() =>
                   setSelectedHistorySessionId(
@@ -7455,75 +7946,62 @@ function App() {
                   )
                 }
               >
-                <div className="history-workout-card-content">
-                  <div className="history-workout-card-heading">
-                    <div>
-                      <strong>
-                        {session.workoutDay?.name ||
-                          "Archived Workout"}
-                      </strong>
+                <div className="history-workout-card-heading">
+                  <StatusTile
+                    status={
+                      overallStatus
+                    }
+                  />
 
-                      <p>
-                        {formatDate(session.date)}
-                      </p>
-                    </div>
+                  <div className="history-workout-card-title">
+                    <strong>
+                      {session.workoutDay?.name ||
+                        "Archived Workout"}
+                    </strong>
 
-                    <span className="history-card-chevron">
-                      ›
-                    </span>
+                    <p>
+                      {formatDate(session.date)}
+                    </p>
                   </div>
 
+                  <CaretRight
+                    className="history-card-chevron"
+                    size={18}
+                    weight="bold"
+                    aria-hidden
+                  />
+                </div>
+
+                <div className="history-card-progress">
                   {hasComparison ? (
-                    <div className="history-card-progress">
+                    <>
                       <strong
-                        className={`history-card-overall history-overall-${overallStatus}`}
+                        className={`status-text ${overallStatus}`}
                       >
-                        {overallStatus === "improved"
-                          ? "↑ "
-                          : overallStatus === "regressed"
-                          ? "↓ "
-                          : "= "}
                         {formatProgressPercentage(
                           summary.overallPercentage
-                        )}{" "}
-                        overall
+                        )}
                       </strong>
 
-                      <div className="history-card-counts">
-                        <span className="history-count-improved">
-                          {summary.improved} improved
-                        </span>
-
-                        <span className="history-count-same">
-                          {summary.same} same
-                        </span>
-
-                        <span className="history-count-regressed">
-                          {summary.regressed} regressed
-                        </span>
-
-                        {summary.newCount > 0 && (
-                          <span className="history-count-new">
-                            {summary.newCount} new
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                      <ProgressCounts
+                        summary={
+                          summary
+                        }
+                      />
+                    </>
                   ) : (
-                    <div className="history-card-progress baseline">
-                      <strong className="history-card-overall history-overall-baseline">
-                        Baseline workout
+                    <>
+                      <strong className="status-text baseline">
+                        Baseline
                       </strong>
 
                       {summary?.newCount > 0 && (
-                        <div className="history-card-counts">
-                          <span className="history-count-new">
-                            {summary.newCount} new baseline
-                            {summary.newCount === 1 ? "" : "s"}
-                          </span>
-                        </div>
+                        <span className="history-card-counts">
+                          {summary.newCount} new exercise
+                          {summary.newCount === 1 ? "" : "s"}
+                        </span>
                       )}
-                    </div>
+                    </>
                   )}
                 </div>
               </button>
@@ -7543,10 +8021,12 @@ function App() {
               )
             }
           >
-            Show older workouts (
-            {filteredHistorySessions.length -
-              historyVisibleCount}{" "}
-            more)
+            Show older workouts
+            <span className="muted">
+              {filteredHistorySessions.length -
+                historyVisibleCount}{" "}
+              more
+            </span>
           </button>
         )}
 
@@ -7593,6 +8073,57 @@ function App() {
         })
       ) || [];
 
+    const monthlyRows =
+      buildMonthlyRows(
+        monthlyBodyProgress,
+        monthRange
+      );
+
+    // One body part's result for a month: its change, "Baseline" when
+    // there was no previous month to compare with, or no workouts.
+    function renderMonthChange(
+      month
+    ) {
+      if (!month) {
+        return (
+          <span className="muted">
+            No workouts
+          </span>
+        );
+      }
+
+      if (
+        !Number.isFinite(
+          month.percentage
+        )
+      ) {
+        return (
+          <span className="status-text baseline">
+            Baseline
+          </span>
+        );
+      }
+
+      const status =
+        getProgressStatus(
+          month.percentage
+        );
+
+      return (
+        <span
+          className={`status-text ${status}`}
+        >
+          <ProgressDirectionIcon
+            status={status}
+            size={12}
+          />
+          {formatProgressPercentage(
+            month.percentage
+          )}
+        </span>
+      );
+    }
+
     return (
       <div
         className={`app ${
@@ -7601,38 +8132,28 @@ function App() {
             ? "app-with-fixed-back"
             : ""
         }`}
+        key="progress"
       >
         {workoutProgressOpen && (
-          <button
-            className="back-button workout-progress-back"
+          <BackButton
+            label="Workout"
             onClick={
               closeWorkoutExerciseProgress
             }
-          >
-            ← Workout
-          </button>
+          />
         )}
 
         {historyProgressReturn && (
-          <button
-            className="back-button history-progress-back"
+          <BackButton
+            label="History"
             onClick={
               closeHistoryExerciseProgress
             }
-          >
-            ← History
-          </button>
+          />
         )}
 
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              {workoutProgressOpen ||
-              historyProgressReturn
-                ? "EXERCISE PROGRESS"
-                : "WBX WORKOUT PLANNER"}
-            </p>
-
             <h1>
               Progress
             </h1>
@@ -7640,13 +8161,17 @@ function App() {
         </header>
 
         <section className="progress-selector">
-          <label>
-            Exercise
-          </label>
+          <div className="search-field">
+            <MagnifyingGlass
+              size={17}
+              aria-hidden
+            />
 
           <input
             className="progress-search"
-            placeholder="Search exercises..."
+            type="search"
+            aria-label="Search exercises"
+            placeholder="Search exercises"
             value={
               progressSearch
             }
@@ -7669,6 +8194,7 @@ function App() {
               }
             }}
           />
+          </div>
 
           {progressSearch.trim() !==
             "" &&
@@ -7695,11 +8221,21 @@ function App() {
                         {name}
                       </span>
 
-                      <span>
-                        ›
-                      </span>
+                      <CaretRight
+                        size={16}
+                        weight="bold"
+                        aria-hidden
+                      />
                     </button>
                   )
+                )}
+
+                {filteredProgressExercises.length ===
+                  0 && (
+                  <p className="exercise-search-empty">
+                    No exercise matches "
+                    {progressSearch.trim()}"
+                  </p>
                 )}
               </div>
             )}
@@ -7709,13 +8245,12 @@ function App() {
           <>
             <section className="overall-body-progress-section">
               <div className="overall-body-progress-heading">
-                <div>
-                  <p className="eyebrow">MONTH TO MONTH</p>
-                  <h2>Overall Progression</h2>
-                </div>
+                <h2 className="section-title">
+                  Month to month
+                </h2>
 
                 <p>
-                  RIR-adjusted monthly performance compared with the
+                  RIR-adjusted performance compared with the
                   previous calendar month.
                 </p>
               </div>
@@ -7725,8 +8260,8 @@ function App() {
                 const latest = bodyData?.latest;
                 const bodyLabel =
                   bodyType === "upper"
-                    ? "Upper Body"
-                    : "Lower Body";
+                    ? "Upper body"
+                    : "Lower body";
 
                 const latestStatus = latest
                   ? getProgressStatus(latest.percentage)
@@ -7739,8 +8274,8 @@ function App() {
                   >
                     <div className="body-progress-card-top">
                       <div>
-                        <span className="body-progress-label">
-                          {bodyLabel.toUpperCase()}
+                        <span className="metric-label">
+                          {bodyLabel}
                         </span>
 
                         {latest ? (
@@ -7770,20 +8305,19 @@ function App() {
 
                       {latest && (
                         <div className={`body-progress-direction ${latestStatus}`}>
-                          {latestStatus === "improved"
-                            ? "↑"
-                            : latestStatus === "regressed"
-                            ? "↓"
-                            : "="}
+                          <ProgressDirectionIcon
+                            status={latestStatus}
+                            size={20}
+                          />
                         </div>
                       )}
                     </div>
 
                     {latest && (
-                      <div className="body-progress-comparable-count">
-                        {latest.comparableExercises} comparable exercise
+                      <p className="body-progress-comparable-count">
+                        Based on {latest.comparableExercises} exercise
                         {latest.comparableExercises === 1 ? "" : "s"}
-                      </div>
+                      </p>
                     )}
 
                     {bodyData?.chartData?.length > 0 ? (
@@ -7800,22 +8334,23 @@ function App() {
                           >
                             <XAxis
                               dataKey="month"
-                              tick={{ fontSize: 11 }}
+                              tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
                               axisLine={false}
                               tickLine={false}
                             />
 
                             <YAxis
-                              tick={{ fontSize: 11 }}
+                              tick={{ fontSize: 11, fill: CHART_COLORS.axis }}
                               axisLine={false}
                               tickLine={false}
                               tickFormatter={(value) => `${value}%`}
                             />
 
                             <Tooltip
+                              {...CHART_TOOLTIP_PROPS}
                               formatter={(value) => [
-                                `${Number(value) > 0 ? "+" : ""}${Number(value).toFixed(2)}%`,
-                                "Overall progression",
+                                formatProgressPercentage(value),
+                                "Progression",
                               ]}
                             />
 
@@ -7833,11 +8368,11 @@ function App() {
                                 <Cell
                                   key={`${bodyType}-${entry.month}-${index}`}
                                   fill={
-                                    entry.percentage > 0.05
-                                      ? "#57d38c"
-                                      : entry.percentage < -0.05
-                                      ? "#ff6f73"
-                                      : "#8f93a2"
+                                    CHART_COLORS[
+                                      getProgressStatus(
+                                        entry.percentage
+                                      )
+                                    ]
                                   }
                                 />
                               ))}
@@ -7858,6 +8393,160 @@ function App() {
                 );
               })}
             </section>
+
+            {monthlyRows.rows.length > 0 && (
+              <section className="card monthly-history">
+                <div className="monthly-history-top">
+                  <h3 className="section-title">
+                    Month by month
+                  </h3>
+
+                  <div
+                    className="segmented"
+                    role="group"
+                    aria-label="Months shown"
+                  >
+                    {MONTH_RANGES.map(
+                      (option) => (
+                        <button
+                          key={
+                            option.value
+                          }
+                          aria-pressed={
+                            monthRange ===
+                            option.value
+                          }
+                          className={`segmented-option ${
+                            monthRange ===
+                            option.value
+                              ? "selected"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            setMonthRange(
+                              option.value
+                            )
+                          }
+                        >
+                          {
+                            option.label
+                          }
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+
+                <div
+                  className="monthly-table"
+                  role="table"
+                  aria-label="Monthly progression"
+                >
+                  <div
+                    className="monthly-row monthly-head"
+                    role="row"
+                  >
+                    <span role="columnheader">
+                      Month
+                    </span>
+                    <span role="columnheader">
+                      Upper
+                    </span>
+                    <span role="columnheader">
+                      Lower
+                    </span>
+                  </div>
+
+                  {monthlyRows.rows.map(
+                    (row) => (
+                      <div
+                        className="monthly-row"
+                        role="row"
+                        key={
+                          row.monthKey
+                        }
+                      >
+                        <span role="cell">
+                          {
+                            row.monthLabel
+                          }
+                        </span>
+
+                        {["upper", "lower"].map(
+                          (bodyType) => (
+                            <span
+                              role="cell"
+                              key={
+                                bodyType
+                              }
+                            >
+                              {renderMonthChange(
+                                row[
+                                  bodyType
+                                ]
+                              )}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    )
+                  )}
+
+                  {monthlyRows.rows.length >
+                    1 && (
+                    <div
+                      className="monthly-row monthly-total"
+                      role="row"
+                    >
+                      <span role="cell">
+                        Combined
+                      </span>
+
+                      {["upper", "lower"].map(
+                        (bodyType) => {
+                          const value =
+                            monthlyRows
+                              .total[
+                              bodyType
+                            ];
+
+                          return (
+                            <span
+                              role="cell"
+                              key={
+                                bodyType
+                              }
+                            >
+                              {value ===
+                              null ? (
+                                <span className="muted">
+                                  No change yet
+                                </span>
+                              ) : (
+                                <span
+                                  className={`status-text ${getProgressStatus(
+                                    value
+                                  )}`}
+                                >
+                                  {formatProgressPercentage(
+                                    value
+                                  )}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        }
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <p className="monthly-history-note">
+                  Each month is compared with the month before it.
+                  Combined is the total change across the months shown.
+                </p>
+              </section>
+            )}
 
             <div className="progress-search-hint">
               <strong>Individual exercise progress</strong>
@@ -7886,81 +8575,86 @@ function App() {
           progressData?.sessions.length >
             0 && (
             <>
-              <section className="progress-stats">
-                <div className="stat-card">
-                  <span>
-                    Best weight
-                  </span>
+              <section className="card progress-overview">
+                <div className="progress-overview-top">
+                  <div>
+                    <p className="metric-label">
+                      Strength change
+                    </p>
 
-                  <strong>
-                    {
-                      progressData.bestWeight
-                    }
-                    kg
-                  </strong>
+                    <strong
+                      className={`status-text large ${getProgressStatus(
+                        progressData.change
+                      )}`}
+                    >
+                      <ProgressDirectionIcon
+                        status={getProgressStatus(
+                          progressData.change
+                        )}
+                        size={20}
+                      />
+                      {formatProgressPercentage(
+                        progressData.change
+                      )}
+                    </strong>
+                  </div>
+
+                  <p className="progress-overview-note">
+                    Since first session
+                  </p>
                 </div>
 
-                <div className="stat-card">
-                  <span>
-                    RIR-adjusted 1RM
-                  </span>
+                <dl className="summary-stats">
+                  <div>
+                    <dt>
+                      Best weight
+                    </dt>
 
-                  <strong>
-                    {progressData.bestE1RM.toFixed(
-                      1
-                    )}
-                    kg
-                  </strong>
-                </div>
+                    <dd>
+                      {
+                        progressData.bestWeight
+                      }{" "}
+                      <small>
+                        kg
+                      </small>
+                    </dd>
+                  </div>
 
-                <div className="stat-card">
-                  <span>
-                    Sessions
-                  </span>
+                  <div>
+                    <dt>
+                      Best e1RM
+                    </dt>
 
-                  <strong>
-                    {
-                      progressData
-                        .sessions
-                        .length
-                    }
-                  </strong>
-                </div>
+                    <dd>
+                      {progressData.bestE1RM.toFixed(
+                        1
+                      )}{" "}
+                      <small>
+                        kg
+                      </small>
+                    </dd>
+                  </div>
 
-                <div className="stat-card">
-                  <span>
-                    Strength change
-                  </span>
+                  <div>
+                    <dt>
+                      Sessions
+                    </dt>
 
-                  <strong
-                    className={
-                      progressData.change >
-                      0
-                        ? "positive-stat"
-                        : progressData.change <
-                          0
-                        ? "negative-stat"
-                        : ""
-                    }
-                  >
-                    {progressData.change >
-                    0
-                      ? "+"
-                      : ""}
-                    {progressData.change.toFixed(
-                      1
-                    )}
-                    %
-                  </strong>
-                </div>
+                    <dd>
+                      {
+                        progressData
+                          .sessions
+                          .length
+                      }
+                    </dd>
+                  </div>
+                </dl>
               </section>
 
               <section className="section">
-                <div className="section-header">
-                  <h3>
-                    Personal Bests
-                  </h3>
-                </div>
+                <h3 className="section-title">
+                  Personal bests
+                </h3>
 
                 <div className="progress-bests-list">
                   {[
@@ -8006,11 +8700,23 @@ function App() {
                           item.label
                         }
                       >
-                        <span className="progress-best-label">
-                          {
-                            item.label
-                          }
-                        </span>
+                        <div>
+                          <span className="progress-best-label">
+                            {
+                              item.label
+                            }
+                          </span>
+
+                          {item.record && (
+                            <span className="progress-best-date">
+                              {formatDate(
+                                item
+                                  .record
+                                  .date
+                              )}
+                            </span>
+                          )}
+                        </div>
 
                         <strong>
                           {item.record
@@ -8019,58 +8725,93 @@ function App() {
                                   .record
                                   .value
                               )
-                            : "—"}
+                            : "None yet"}
                         </strong>
-
-                        <span className="progress-best-date">
-                          {item.record
-                            ? formatDate(
-                                item
-                                  .record
-                                  .date
-                              )
-                            : ""}
-                        </span>
                       </div>
                     )
                   )}
                 </div>
               </section>
 
-              <section className="progress-chart-card">
-                <h2>
-                  {
-                    selectedProgressExercise
-                  }
-                </h2>
+              <section className="card progress-chart-card">
+                <h3 className="section-title">
+                  e1RM per session
+                </h3>
 
                 <div className="chart-container">
                   <ResponsiveContainer
                     width="100%"
                     height={
-                      240
+                      220
                     }
                   >
                     <LineChart
                       data={
                         chartData
                       }
+                      margin={{
+                        top: 10,
+                        right: 12,
+                        left: -14,
+                        bottom: 0,
+                      }}
                     >
                       <XAxis
                         dataKey="date"
+                        tick={{
+                          fontSize: 11,
+                          fill: CHART_COLORS.axis,
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
                       />
 
-                      <YAxis />
+                      {/* Fit the axis to the data: from 0 the line
+                          looked flat even when strength moved. */}
+                      <YAxis
+                        tick={{
+                          fontSize: 11,
+                          fill: CHART_COLORS.axis,
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        domain={[
+                          "dataMin - 4",
+                          "dataMax + 4",
+                        ]}
+                        tickCount={4}
+                        allowDecimals={
+                          false
+                        }
+                      />
 
-                      <Tooltip />
+                      <Tooltip
+                        {...CHART_TOOLTIP_PROPS}
+                        formatter={(value) => [
+                          `${value} kg`,
+                          "e1RM",
+                        ]}
+                      />
 
                       <Line
                         type="monotone"
                         dataKey="e1rm"
-                        stroke="currentColor"
-                        strokeWidth={
-                          3
+                        stroke={
+                          CHART_COLORS.accent
                         }
+                        strokeWidth={
+                          2.5
+                        }
+                        dot={{
+                          r: 3,
+                          fill: CHART_COLORS.accent,
+                          strokeWidth: 0,
+                        }}
+                        activeDot={{
+                          r: 5,
+                          strokeWidth: 0,
+                        }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
@@ -8078,11 +8819,9 @@ function App() {
               </section>
 
               <section className="section">
-                <div className="section-header">
-                  <h3>
-                    Exercise History
-                  </h3>
-                </div>
+                <h3 className="section-title">
+                  Sessions
+                </h3>
 
                 <div className="progress-history-list">
                   {[...progressData.sessions]
@@ -8108,7 +8847,7 @@ function App() {
                               e1RM{" "}
                               {session.bestE1RM.toFixed(
                                 1
-                              )}
+                              )}{" "}
                               kg
                             </span>
                           </div>
@@ -8135,7 +8874,7 @@ function App() {
                                     {
                                       set.weight
                                     }
-                                    kg ×{" "}
+                                    {" "}kg ×{" "}
                                     {
                                       set.reps
                                     }
@@ -8175,43 +8914,43 @@ function App() {
     "settings"
   ) {
     return (
-      <div className="app">
+      <div
+        className="app"
+        key="settings"
+      >
         <header className="topbar">
           <div>
-            <p className="eyebrow">
-              WBX WORKOUT PLANNER
-            </p>
-
             <h1>
               Settings
             </h1>
           </div>
         </header>
 
-        <section className="card hero-card">
-          <p className="card-label">
-            STORAGE
-          </p>
-
-          <h2>
-            Local Database
+        <section className="settings-section">
+          <h2 className="section-title">
+            Backup
           </h2>
 
-          <p className="muted">
-            Your completed workout history and paused workout are stored locally on this device.
+          <p className="section-note">
+            Your workouts are stored only on this device. Export a backup
+            before reinstalling the app or switching phones.
           </p>
-        </section>
 
-        <section className="settings-section">
           <div className="settings-card">
             <div className="settings-item">
+              <DownloadSimple
+                className="settings-item-icon"
+                size={20}
+                aria-hidden
+              />
+
               <div>
                 <strong>
-                  Export Backup
+                  Export backup
                 </strong>
 
                 <p>
-                  Save your workout history and paused workout.
+                  Saves history and any paused workout to a file.
                 </p>
               </div>
 
@@ -8225,16 +8964,20 @@ function App() {
               </button>
             </div>
 
-            <div className="settings-divider" />
-
             <div className="settings-item">
+              <UploadSimple
+                className="settings-item-icon"
+                size={20}
+                aria-hidden
+              />
+
               <div>
                 <strong>
-                  Restore Backup
+                  Restore backup
                 </strong>
 
                 <p>
-                  Restore a previous database backup.
+                  Replaces everything on this device with a backup file.
                 </p>
               </div>
 
@@ -8268,7 +9011,10 @@ function App() {
   // ============================================================
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      key="home"
+    >
       <div className="wbx-home-banner">
         <img
           src={`${import.meta.env.BASE_URL}wbx-workout-planner-banner.png`}
@@ -8276,30 +9022,12 @@ function App() {
         />
       </div>
 
-      <header className="topbar wbx-home-heading">
-        <div>
-          <p className="eyebrow">
-            WBX WORKOUT PLANNER
-          </p>
-
-          <h1>
-            Workouts
-          </h1>
-        </div>
-      </header>
-
       {renderPausedWorkoutBanner()}
 
       <div className="manage-header">
-        <div>
-          <h3>
-            Your Splits
-          </h3>
-
-          <p>
-            Build and manage your programs.
-          </p>
-        </div>
+        <h1 className="home-title">
+          Your splits
+        </h1>
 
         <button
           className="small-add-button"
@@ -8307,68 +9035,35 @@ function App() {
             openNewSplit
           }
         >
-          + New Split
+          <Plus
+            size={15}
+            weight="bold"
+            aria-hidden
+          />
+          New split
         </button>
       </div>
 
       <div className="split-list">
         {splits?.map(
-          (split) => (
-            <div
-              className="management-card"
-              key={
-                split.id
-              }
-            >
-              <button
-                className="management-card-main"
-                onClick={() =>
-                  setSelectedSplitId(
-                    split.id
-                  )
-                }
-              >
-                <div>
-                  <strong>
-                    {
-                      split.name
-                    }
-                  </strong>
-
-                  <p>
-                    Tap to view workout days
-                  </p>
-                </div>
-
-                <span>
-                  ›
-                </span>
-              </button>
-
-              <div className="management-card-actions">
-                <button
-                  onClick={() =>
-                    openEditSplit(
-                      split
-                    )
-                  }
-                >
-                  Rename
-                </button>
-
-                <button
-                  className="danger-text"
-                  onClick={() =>
-                    deleteSplit(
-                      split
-                    )
-                  }
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          )
+          (split) =>
+            renderManagementCard({
+              key: split.id,
+              title: split.name,
+              onOpen: () =>
+                setSelectedSplitId(
+                  split.id
+                ),
+              editLabel: "Rename",
+              onEdit: () =>
+                openEditSplit(
+                  split
+                ),
+              onDelete: () =>
+                deleteSplit(
+                  split
+                ),
+            })
         )}
       </div>
 
@@ -8387,6 +9082,119 @@ function App() {
       {renderBottomNav()}
       {renderSplitForm()}
     </div>
+  );
+}
+
+// ============================================================
+// SHARED UI
+// ============================================================
+
+// Fixed, top-left, safe-area aware. The label names the destination.
+function BackButton({
+  label,
+  onClick,
+  className = "",
+}) {
+  return (
+    <button
+      className={`back-button ${className}`}
+      onClick={onClick}
+    >
+      <CaretLeft
+        size={16}
+        weight="bold"
+        aria-hidden
+      />
+      {label}
+    </button>
+  );
+}
+
+// Direction of a progression status: improved / regressed / anything else.
+function ProgressDirectionIcon({
+  status,
+  size = 14,
+}) {
+  if (status === "improved") {
+    return (
+      <ArrowUp
+        size={size}
+        weight="bold"
+        aria-hidden
+      />
+    );
+  }
+
+  if (status === "regressed") {
+    return (
+      <ArrowDown
+        size={size}
+        weight="bold"
+        aria-hidden
+      />
+    );
+  }
+
+  return (
+    <Equals
+      size={size}
+      weight="bold"
+      aria-hidden
+    />
+  );
+}
+
+// Coloured square showing a workout's overall result in History.
+function StatusTile({ status }) {
+  return (
+    <span
+      className={`status-tile ${status}`}
+      aria-hidden
+    >
+      {status === "baseline" ? (
+        <Flag
+          size={17}
+          weight="fill"
+        />
+      ) : (
+        <ProgressDirectionIcon
+          status={status}
+          size={17}
+        />
+      )}
+    </span>
+  );
+}
+
+// "1 improved, 0 same, 1 regressed": non-zero improved/regressed counts
+// take their status colour.
+function ProgressCounts({ summary }) {
+  return (
+    <span className="history-card-counts">
+      <span
+        className={
+          summary.improved > 0
+            ? "count-improved"
+            : ""
+        }
+      >
+        {summary.improved} improved
+      </span>
+      {", "}
+      {summary.same} same
+      {", "}
+      <span
+        className={
+          summary.regressed > 0
+            ? "count-regressed"
+            : ""
+        }
+      >
+        {summary.regressed} regressed
+      </span>
+      {summary.newCount > 0 &&
+        `, ${summary.newCount} new`}
+    </span>
   );
 }
 
@@ -8426,13 +9234,30 @@ function ExerciseWorkoutCard({
     );
 
   return (
-    <>
+    <div
+      className={`exercise-body ${
+        allComplete
+          ? "is-complete"
+          : ""
+      }`}
+    >
       <div className="exercise-top">
         <div>
           <h3>
             {
               exercise.name
             }
+
+            {allComplete && (
+              <span className="completed-badge">
+                <Check
+                  size={12}
+                  weight="bold"
+                  aria-hidden
+                />
+                Done
+              </span>
+            )}
           </h3>
 
           <p className="exercise-target">
@@ -8443,49 +9268,52 @@ function ExerciseWorkoutCard({
             {
               exercise.maxReps
             }{" "}
-            reps · RIR{" "}
+            reps, RIR{" "}
             {
               exercise.targetRIR
             }
+
+            {skippedLastWorkout && (
+              <span className="skipped-note">
+                {" "}
+                Skipped last time
+              </span>
+            )}
           </p>
         </div>
 
         <div className="exercise-header-actions">
           <button
-            className="exercise-progress-button"
+            className="icon-button"
+            aria-label={`Progress for ${exercise.name}`}
             onClick={() =>
               openProgress(
                 exercise.name
               )
             }
           >
-            Progress
+            <ChartLineUp
+              size={19}
+              aria-hidden
+            />
           </button>
 
           {onEdit && (
             <button
-              className="exercise-edit-button"
+              className="icon-button"
+              aria-label={`Edit ${exercise.name}`}
               onClick={() =>
                 onEdit(exercise)
               }
             >
-              Edit
+              <PencilSimple
+                size={18}
+                aria-hidden
+              />
             </button>
-          )}
-
-          {allComplete && (
-            <span className="completed-badge">
-              ✓ Done
-            </span>
           )}
         </div>
       </div>
-
-      {skippedLastWorkout && (
-        <div className="skipped-last-workout">
-          Skipped last workout
-        </div>
-      )}
 
       {lastSession &&
         previousSets.length >
@@ -8493,11 +9321,11 @@ function ExerciseWorkoutCard({
           <div className="previous-block">
             <div className="previous-session-heading">
               <p className="previous-title">
-                Last performed
+                Last time
               </p>
 
               <span>
-                {formatDate(
+                {formatShortDate(
                   lastSession.date
                 )}
               </span>
@@ -8563,7 +9391,7 @@ function ExerciseWorkoutCard({
           removeSet
         }
       />
-    </>
+    </div>
   );
 }
 
@@ -8582,7 +9410,10 @@ function WorkoutSetRows({
 }) {
   return (
     <>
-      <div className="set-header set-header-six">
+      <div
+        className="set-header set-header-six"
+        aria-hidden
+      >
         <span>
           Set
         </span>
@@ -8599,9 +9430,7 @@ function WorkoutSetRows({
           RIR
         </span>
 
-        <span>
-          Done
-        </span>
+        <span />
 
         <span />
       </div>
@@ -8621,6 +9450,11 @@ function WorkoutSetRows({
               key={
                 index
               }
+              className={`set-entry ${
+                set.completed
+                  ? "is-completed"
+                  : ""
+              }`}
             >
               <div className="set-row set-row-six">
                 <span className="set-number">
@@ -8632,6 +9466,7 @@ function WorkoutSetRows({
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
+                  aria-label={`Set ${index + 1} weight in kg`}
                   value={
                     set.weight
                   }
@@ -8655,6 +9490,7 @@ function WorkoutSetRows({
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
+                  aria-label={`Set ${index + 1} reps`}
                   value={
                     set.reps
                   }
@@ -8678,6 +9514,7 @@ function WorkoutSetRows({
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
+                  aria-label={`Set ${index + 1} reps in reserve`}
                   value={
                     set.rir
                   }
@@ -8704,6 +9541,10 @@ function WorkoutSetRows({
                       ? "completed"
                       : ""
                   }`}
+                  aria-label={`Set ${index + 1} done`}
+                  aria-pressed={
+                    !!set.completed
+                  }
                   onClick={() =>
                     toggleSetComplete(
                       exercise.id,
@@ -8711,13 +9552,16 @@ function WorkoutSetRows({
                     )
                   }
                 >
-                  {set.completed
-                    ? "✓"
-                    : "○"}
+                  <Check
+                    size={18}
+                    weight="bold"
+                    aria-hidden
+                  />
                 </button>
 
                 <button
                   className="remove-set-button"
+                  aria-label={`Remove set ${index + 1}`}
                   onClick={() =>
                     removeSet(
                       exercise.id,
@@ -8725,24 +9569,33 @@ function WorkoutSetRows({
                     )
                   }
                 >
-                  ×
+                  <X
+                    size={15}
+                    weight="bold"
+                    aria-hidden
+                  />
                 </button>
               </div>
 
-              {comparison &&
-                !set.completed && (
-                  <div
-                    className={`comparison ${comparison.type}`}
-                  >
-                    {
-                      comparison.text
-                    }
-                  </div>
-                )}
+              {/* Stays visible after the set is ticked so the result
+                  against last time is still readable. */}
+              {comparison && (
+                <div
+                  className={`comparison ${comparison.type}`}
+                >
+                  {comparison.type !==
+                    "mixed" && (
+                    <ProgressDirectionIcon
+                      status={
+                        comparison.type
+                      }
+                      size={11}
+                    />
+                  )}
 
-              {set.completed && (
-                <div className="set-complete-text">
-                  ✓ Set completed
+                  {
+                    comparison.text
+                  }
                 </div>
               )}
             </div>
@@ -8758,7 +9611,12 @@ function WorkoutSetRows({
           )
         }
       >
-        Add Set
+        <Plus
+          size={14}
+          weight="bold"
+          aria-hidden
+        />
+        Add set
       </button>
     </>
   );

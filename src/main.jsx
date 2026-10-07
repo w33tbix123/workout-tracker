@@ -9,6 +9,8 @@ import "./index.css";
 
 import App from "./App.jsx";
 
+import { DialogHost } from "./DialogHost.jsx";
+
 import {
   seedWorkoutData,
 } from "./seed.js";
@@ -53,6 +55,8 @@ async function startApp() {
   ).render(
     <StrictMode>
       <App />
+
+      <DialogHost />
     </StrictMode>
   );
 }
