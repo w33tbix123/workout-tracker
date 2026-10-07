@@ -951,6 +951,43 @@ function App() {
     );
   }
 
+  // An optional alternative group works like any optional exercise: it
+  // stays skipped until included. Inclusion is stored per group under
+  // its order key ("group:<name>"). Until the user includes or skips it,
+  // a group that already has completed sets (e.g. in a workout paused
+  // before this rule existed) counts as included.
+  function isOptionalGroupSkipped(
+    groupName,
+    selectedExercise
+  ) {
+    if (
+      !selectedExercise?.optional
+    ) {
+      return false;
+    }
+
+    const decision =
+      includedOptional[
+        `group:${groupName}`
+      ];
+
+    if (
+      decision !==
+      undefined
+    ) {
+      return !decision;
+    }
+
+    return !(
+      workoutSets[
+        selectedExercise.id
+      ] || []
+    ).some(
+      (set) =>
+        set.completed
+    );
+  }
+
   // ============================================================
   // PREVIOUS PERFORMANCE
   // ============================================================
@@ -4026,6 +4063,30 @@ function App() {
             return;
           }
 
+          const selectedExercise =
+            (
+              alternativeGroups[
+                exercise.alternativeGroup
+              ] || []
+            ).find(
+              (item) =>
+                item.id ===
+                selectedId
+            );
+
+          if (
+            isOptionalGroupSkipped(
+              exercise.alternativeGroup,
+              selectedExercise
+            )
+          ) {
+            skippedExerciseIds.push(
+              selectedId
+            );
+
+            return;
+          }
+
           const sets =
             workoutSets[
               selectedId
@@ -5745,6 +5806,65 @@ function App() {
                       selectedExercise.id
                     ];
 
+                const optionalGroupKey = `group:${exercise.alternativeGroup}`;
+
+                if (
+                  isOptionalGroupSkipped(
+                    exercise.alternativeGroup,
+                    selectedExercise
+                  )
+                ) {
+                  return (
+                    <div
+                      className="exercise-card optional-during-workout-card"
+                      key={
+                        exercise.alternativeGroup
+                      }
+                    >
+                      <span className="optional-badge">
+                        Optional
+                      </span>
+
+                      <h3>
+                        {group
+                          .map(
+                            (item) =>
+                              item.name
+                          )
+                          .join(" / ")}
+                      </h3>
+
+                      {previousInfo?.skippedLastWorkout && (
+                        <div className="skipped-last-workout">
+                          Skipped last workout
+                        </div>
+                      )}
+
+                      {previousInfo?.lastPerformedSession && (
+                        <div className="last-performed-summary">
+                          Last performed{" "}
+                          {formatDate(
+                            previousInfo
+                              .lastPerformedSession
+                              .date
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        className="include-workout-exercise-button"
+                        onClick={() =>
+                          includeOptionalExercise(
+                            optionalGroupKey
+                          )
+                        }
+                      >
+                        Include Exercise
+                      </button>
+                    </div>
+                  );
+                }
+
                 return (
                   <div
                     className="exercise-card"
@@ -5752,6 +5872,25 @@ function App() {
                       exercise.alternativeGroup
                     }
                   >
+                    {selectedExercise.optional && (
+                      <div className="optional-active-top">
+                        <span className="optional-badge">
+                          Optional
+                        </span>
+
+                        <button
+                          className="skip-workout-exercise-button"
+                          onClick={() =>
+                            skipOptionalExercise(
+                              optionalGroupKey
+                            )
+                          }
+                        >
+                          Skip
+                        </button>
+                      </div>
+                    )}
+
                     <span className="alternative-label">
                       ALTERNATIVE
                     </span>
