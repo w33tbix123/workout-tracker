@@ -245,7 +245,7 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | 0d7b494 | Progress name matching ignores case and spaces (`normalizeExerciseName`) |
 | 29128b3 | Performance: cached date formatters, History paging (40), `findLatestPerformances` for prefill and summary |
 
-Everything up to 62eecd5 is deployed to GitHub Pages. Check `git log origin/main..` to see what's newer than the deployed build.
+Everything above is deployed to GitHub Pages (live bundle `index-cVhYG4Ia.js` as of ddc3702). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
 ## 13. Known limitations and tech debt
 
