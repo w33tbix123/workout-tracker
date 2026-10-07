@@ -493,13 +493,10 @@ function compareSet(current, previous) {
     };
   }
 
-  // Mixed result (e.g. weight up but reps down). If the load went up and
-  // the reps are still within the working rep range, count it as
-  // progression — this matches the user's rep-range training style.
-  if (
-    weightDiff > 0 &&
-    repsDiff < 0
-  ) {
+  // Mixed result (e.g. weight up but reps or RIR down). If the load went
+  // up and the reps are still within the working rep range, count it as
+  // progression — same rule as resolveExerciseProgress in History.
+  if (weightDiff > 0) {
     if (
       currentReps >=
         PROGRESSION_REP_MIN &&
