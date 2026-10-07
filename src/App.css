@@ -418,6 +418,28 @@ button svg {
   font-weight: 700;
 }
 
+/* Neutral pill for a secondary page action (History "Edit"); coral is
+   kept for primary actions. */
+.topbar-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+
+  min-height: 36px;
+
+  padding: 0 13px 0 11px;
+
+  border: none;
+  border-radius: var(--radius-pill);
+
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-soft);
+
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .status-text {
   display: inline-flex;
   align-items: center;
@@ -1067,6 +1089,28 @@ button svg {
   padding: 6px 0;
 }
 
+/* History edit rows: no done toggle, so the remove button takes its
+   place. The doubled class beats the small-screen override below. */
+.set-header-six.set-header-edit,
+.set-row-six.set-row-edit {
+  grid-template-columns:
+    24px
+    minmax(0, 1fr)
+    minmax(0, 1fr)
+    minmax(0, 0.8fr)
+    40px;
+}
+
+.set-row-edit {
+  border-top: 1px solid var(--line);
+}
+
+.set-row-edit .remove-set-button {
+  justify-self: center;
+
+  width: 40px;
+}
+
 .set-number {
   color: var(--text-soft);
 
@@ -1368,6 +1412,40 @@ button svg {
   pointer-events: auto;
 
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+}
+
+/* Cancel / Save bar while editing a History workout. It takes the
+   bottom nav's place, which is hidden while editing. */
+.history-edit-actions {
+  position: fixed;
+  z-index: 140;
+
+  left: 50%;
+  bottom: 0;
+
+  width: min(460px, 100%);
+
+  padding:
+    14px
+    16px
+    calc(14px + env(safe-area-inset-bottom));
+
+  background:
+    linear-gradient(
+      180deg,
+      transparent,
+      var(--bg) 30%
+    );
+
+  transform: translateX(-50%);
+}
+
+.history-edit-actions .form-actions {
+  margin-top: 0;
+}
+
+.history-edit-actions .primary-form-button:disabled {
+  opacity: 0.6;
 }
 
 /* ============================================================
@@ -2464,7 +2542,7 @@ button svg {
    so this runs on navigation, not on every render. Fixed children are
    excluded: a transform would break their fixed positioning. */
 .app
-  > *:not(.bottom-nav):not(.back-button):not(.fixed-start-workout-area):not(.form-overlay) {
+  > *:not(.bottom-nav):not(.back-button):not(.fixed-start-workout-area):not(.history-edit-actions):not(.form-overlay) {
   animation: screen-enter var(--dur) var(--ease-out) both;
 }
 
@@ -2518,7 +2596,7 @@ button svg {
 
 @media (prefers-reduced-motion: reduce) {
   .app
-    > *:not(.bottom-nav):not(.back-button):not(.fixed-start-workout-area):not(.form-overlay),
+    > *:not(.bottom-nav):not(.back-button):not(.fixed-start-workout-area):not(.history-edit-actions):not(.form-overlay),
   .form-sheet {
     animation-name: fade-in;
   }

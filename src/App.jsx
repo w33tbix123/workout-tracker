@@ -1106,6 +1106,20 @@ function App() {
     setHistoryVisibleCount,
   ] = useState(HISTORY_PAGE_SIZE);
 
+  // Editing the sets of a finished workout in History detail:
+  // { sessionId, original, sets: { [exerciseId]: [{ id, weight, reps, rir }] } }.
+  // Nothing is written until Save; original is the snapshot used to
+  // detect unsaved changes.
+  const [
+    historyEdit,
+    setHistoryEdit,
+  ] = useState(null);
+
+  const [
+    savingHistoryEdit,
+    setSavingHistoryEdit,
+  ] = useState(false);
+
   const [
     selectedProgressExercise,
     setSelectedProgressExercise,
@@ -5583,6 +5597,502 @@ function App() {
   }
 
   // ============================================================
+  // HISTORY EDITING
+  // ============================================================
+
+  // Fixes typos in a finished workout. Edits go to a copy and are
+  // written in one transaction on Save; every live query (History %,
+  // Progress, Monthly, "Last time") recalculates from the saved sets.
+  function startHistoryEdit() {
+    if (
+      !selectedHistorySession
+    ) {
+      return;
+    }
+
+    const sets = {};
+
+    Object.entries(
+      selectedHistorySession.sets
+    ).forEach(
+      ([
+        exerciseId,
+        items,
+      ]) => {
+        sets[exerciseId] =
+          items.map(
+            (set) => ({
+              id: set.id,
+
+              weight: String(
+                set.weight ??
+                  ""
+              ),
+
+              reps: String(
+                set.reps ??
+                  ""
+              ),
+
+              rir: String(
+                getRIRValue(
+                  set.rir
+                )
+              ),
+            })
+          );
+      }
+    );
+
+    // Skipped exercises get an empty list so a forgotten set can be
+    // added to them.
+    (
+      selectedHistorySession
+        .session
+        .skippedExerciseIds ||
+      []
+    ).forEach(
+      (exerciseId) => {
+        if (
+          !sets[exerciseId]
+        ) {
+          sets[exerciseId] =
+            [];
+        }
+      }
+    );
+
+    setHistoryEdit({
+      sessionId:
+        selectedHistorySessionId,
+
+      original:
+        JSON.stringify(
+          sets
+        ),
+
+      sets,
+    });
+  }
+
+  function isHistoryEditDirty() {
+    return (
+      !!historyEdit &&
+      JSON.stringify(
+        historyEdit.sets
+      ) !==
+        historyEdit.original
+    );
+  }
+
+  function updateHistoryEditRows(
+    exerciseId,
+    updateRows
+  ) {
+    setHistoryEdit(
+      (current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+
+          sets: {
+            ...current.sets,
+
+            [exerciseId]:
+              updateRows(
+                current.sets[
+                  exerciseId
+                ] || []
+              ),
+          },
+        };
+      }
+    );
+  }
+
+  function updateHistoryEditSet(
+    exerciseId,
+    index,
+    field,
+    value
+  ) {
+    updateHistoryEditRows(
+      exerciseId,
+      (rows) =>
+        rows.map(
+          (row, rowIndex) =>
+            rowIndex === index
+              ? {
+                  ...row,
+
+                  [field]:
+                    normalizeDecimalInput(
+                      value
+                    ),
+                }
+              : row
+        )
+    );
+  }
+
+  // A forgotten set is usually a repeat of the one before it, so the
+  // new row copies the last row's values.
+  function addHistoryEditSet(
+    exerciseId
+  ) {
+    updateHistoryEditRows(
+      exerciseId,
+      (rows) => {
+        const lastRow =
+          rows[
+            rows.length - 1
+          ];
+
+        return [
+          ...rows,
+
+          {
+            id: null,
+
+            weight:
+              lastRow?.weight ??
+              "",
+
+            reps:
+              lastRow?.reps ??
+              "",
+
+            rir:
+              lastRow?.rir ??
+              "",
+          },
+        ];
+      }
+    );
+  }
+
+  function removeHistoryEditSet(
+    exerciseId,
+    index
+  ) {
+    updateHistoryEditRows(
+      exerciseId,
+      (rows) =>
+        rows.filter(
+          (_, rowIndex) =>
+            rowIndex !== index
+        )
+    );
+  }
+
+  async function cancelHistoryEdit() {
+    if (
+      isHistoryEditDirty()
+    ) {
+      const confirmed =
+        await confirmAction({
+          title:
+            "Discard changes?",
+          message:
+            "Your edits to this workout won't be saved.",
+          confirmLabel:
+            "Discard changes",
+          cancelLabel:
+            "Keep editing",
+        });
+
+      if (!confirmed) {
+        return false;
+      }
+    }
+
+    setHistoryEdit(
+      null
+    );
+
+    return true;
+  }
+
+  async function saveHistoryEdit() {
+    if (
+      !historyEdit ||
+      savingHistoryEdit ||
+      !selectedHistorySession
+    ) {
+      return;
+    }
+
+    if (
+      !isHistoryEditDirty()
+    ) {
+      setHistoryEdit(
+        null
+      );
+
+      return;
+    }
+
+    const session =
+      selectedHistorySession.session;
+
+    const exerciseNames =
+      new Map(
+        selectedHistorySession.allExercises.map(
+          (exercise) => [
+            exercise.id,
+            exercise.name,
+          ]
+        )
+      );
+
+    const updates = [];
+
+    const additions = [];
+
+    const keptIds =
+      new Set();
+
+    const setCounts =
+      new Map();
+
+    for (const [
+      key,
+      rows,
+    ] of Object.entries(
+      historyEdit.sets
+    )) {
+      const exerciseId =
+        Number(key);
+
+      let setNumber = 0;
+
+      for (
+        let index = 0;
+        index < rows.length;
+        index += 1
+      ) {
+        const row =
+          rows[index];
+
+        // A row with no weight and no reps is treated as removed.
+        if (
+          row.weight === "" &&
+          row.reps === ""
+        ) {
+          continue;
+        }
+
+        const weight =
+          parseDecimal(
+            row.weight
+          );
+
+        const reps =
+          parseDecimal(
+            row.reps
+          );
+
+        if (
+          weight === null ||
+          reps === null ||
+          reps <= 0
+        ) {
+          await notify({
+            title:
+              "Check this set",
+            message: `${
+              exerciseNames.get(
+                exerciseId
+              ) || "Exercise"
+            }, set ${
+              index + 1
+            }, needs a weight (0 for bodyweight) and reps above 0.`,
+          });
+
+          return;
+        }
+
+        setNumber += 1;
+
+        // Same shape as the sets saved by finishing a workout,
+        // numbered 1..n so prefill and comparisons line up.
+        const values = {
+          setNumber,
+          weight,
+          reps,
+          rir: getRIRValue(
+            row.rir
+          ),
+        };
+
+        if (row.id) {
+          keptIds.add(
+            row.id
+          );
+
+          updates.push({
+            id: row.id,
+            values,
+          });
+        } else {
+          additions.push({
+            sessionId:
+              session.id,
+            exerciseId,
+            setType:
+              "working",
+            ...values,
+          });
+        }
+      }
+
+      setCounts.set(
+        exerciseId,
+        setNumber
+      );
+    }
+
+    const removedIds =
+      Object.values(
+        selectedHistorySession.sets
+      )
+        .flat()
+        .map(
+          (set) => set.id
+        )
+        .filter(
+          (id) =>
+            !keptIds.has(id)
+        );
+
+    if (
+      removedIds.length
+    ) {
+      const confirmed =
+        await confirmAction({
+          title: `Remove ${
+            removedIds.length
+          } logged ${
+            removedIds.length === 1
+              ? "set"
+              : "sets"
+          }?`,
+          message:
+            "They'll be deleted from this workout and its progression recalculated.",
+          confirmLabel:
+            "Save changes",
+        });
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    // An exercise left with no sets counts as skipped; one that now
+    // has sets no longer does.
+    const skippedExerciseIds = [
+      ...new Set([
+        ...(
+          session.skippedExerciseIds ||
+          []
+        ).filter(
+          (exerciseId) =>
+            !(
+              setCounts.get(
+                exerciseId
+              ) > 0
+            )
+        ),
+
+        ...[...setCounts]
+          .filter(
+            ([, count]) =>
+              count === 0
+          )
+          .map(
+            ([exerciseId]) =>
+              exerciseId
+          ),
+      ]),
+    ];
+
+    const completedSetCount =
+      [...setCounts.values()].reduce(
+        (total, count) =>
+          total + count,
+        0
+      );
+
+    setSavingHistoryEdit(
+      true
+    );
+
+    try {
+      await db.transaction(
+        "rw",
+        db.sessions,
+        db.sets,
+        async () => {
+          for (const {
+            id,
+            values,
+          } of updates) {
+            await db.sets.update(
+              id,
+              values
+            );
+          }
+
+          if (
+            additions.length
+          ) {
+            await db.sets.bulkAdd(
+              additions
+            );
+          }
+
+          if (
+            removedIds.length
+          ) {
+            await db.sets.bulkDelete(
+              removedIds
+            );
+          }
+
+          await db.sessions.update(
+            session.id,
+            {
+              skippedExerciseIds,
+              completedSetCount,
+            }
+          );
+        }
+      );
+    } catch (error) {
+      console.error(error);
+
+      await notify({
+        title:
+          "Changes not saved",
+        message: `Nothing was changed.\n${error.message}`,
+      });
+
+      return;
+    } finally {
+      setSavingHistoryEdit(
+        false
+      );
+    }
+
+    setHistoryEdit(
+      null
+    );
+  }
+
+  // ============================================================
   // BACKUP
   // ============================================================
 
@@ -5662,6 +6172,10 @@ function App() {
     );
 
     setSelectedHistorySessionId(
+      null
+    );
+
+    setHistoryEdit(
       null
     );
   }
@@ -7245,18 +7759,36 @@ function App() {
             summaryOverall
           );
 
+    // Only an edit started on this session counts, so a stale edit can
+    // never show on another workout.
+    const editing =
+      !!selectedHistorySession &&
+      historyEdit?.sessionId ===
+        selectedHistorySessionId;
+
     return (
       <div
-        className="app app-with-fixed-back"
+        className={`app app-with-fixed-back ${
+          editing
+            ? "history-editing-app"
+            : ""
+        }`}
         key="history-detail"
       >
         <BackButton
           label="History"
-          onClick={() =>
+          onClick={async () => {
+            if (
+              editing &&
+              !(await cancelHistoryEdit())
+            ) {
+              return;
+            }
+
             setSelectedHistorySessionId(
               null
-            )
-          }
+            );
+          }}
         />
 
         <header className="topbar">
@@ -7269,15 +7801,33 @@ function App() {
             </h1>
 
             <p className="page-subtitle">
-              {selectedHistorySession
-                ? formatDate(
-                    selectedHistorySession
-                      .session
-                      .date
-                  )
-                : ""}
+              {editing
+                ? "Editing sets"
+                : selectedHistorySession
+                  ? formatDate(
+                      selectedHistorySession
+                        .session
+                        .date
+                    )
+                  : ""}
             </p>
           </div>
+
+          {selectedHistorySession &&
+            !editing && (
+              <button
+                className="topbar-edit-button"
+                onClick={
+                  startHistoryEdit
+                }
+              >
+                <PencilSimple
+                  size={15}
+                  aria-hidden
+                />
+                Edit
+              </button>
+            )}
         </header>
 
         {selectedHistorySummary && (
@@ -7400,23 +7950,49 @@ function App() {
                       )}
                     </div>
 
-                    <button
-                      className="icon-button"
-                      aria-label={`Progress for ${exercise.name}`}
-                      onClick={() =>
-                        openHistoryExerciseProgress(
-                          exercise.name
-                        )
-                      }
-                    >
-                      <ChartLineUp
-                        size={19}
-                        aria-hidden
-                      />
-                    </button>
+                    {!editing && (
+                      <button
+                        className="icon-button"
+                        aria-label={`Progress for ${exercise.name}`}
+                        onClick={() =>
+                          openHistoryExerciseProgress(
+                            exercise.name
+                          )
+                        }
+                      >
+                        <ChartLineUp
+                          size={19}
+                          aria-hidden
+                        />
+                      </button>
+                    )}
                   </div>
 
-                  {sets.length > 0 && (
+                  {editing && (
+                    <HistoryEditSetRows
+                      exercise={
+                        exercise
+                      }
+                      rows={
+                        historyEdit
+                          .sets[
+                          exercise.id
+                        ] || []
+                      }
+                      updateSet={
+                        updateHistoryEditSet
+                      }
+                      addSet={
+                        addHistoryEditSet
+                      }
+                      removeSet={
+                        removeHistoryEditSet
+                      }
+                    />
+                  )}
+
+                  {!editing &&
+                    sets.length > 0 && (
                     <div className="history-set-list">
                       {sets.map(
                         (set) => (
@@ -7446,7 +8022,8 @@ function App() {
                     </div>
                   )}
 
-                  {comparison?.previousDate && (
+                  {!editing &&
+                    comparison?.previousDate && (
                     <p className="history-compared-against">
                       Compared with last performed {formatDate(
                         comparison.previousDate
@@ -7459,7 +8036,36 @@ function App() {
           )}
         </section>
 
-        {renderBottomNav()}
+        {editing ? (
+          <div className="history-edit-actions">
+            <div className="form-actions">
+              <button
+                className="secondary-form-button"
+                onClick={
+                  cancelHistoryEdit
+                }
+              >
+                Cancel
+              </button>
+
+              <button
+                className="primary-form-button"
+                disabled={
+                  savingHistoryEdit
+                }
+                onClick={
+                  saveHistoryEdit
+                }
+              >
+                {savingHistoryEdit
+                  ? "Saving…"
+                  : "Save changes"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          renderBottomNav()
+        )}
       </div>
     );
   }
@@ -9601,6 +10207,143 @@ function WorkoutSetRows({
             </div>
           );
         }
+      )}
+
+      <button
+        className="add-set-button"
+        onClick={() =>
+          addSet(
+            exercise.id
+          )
+        }
+      >
+        <Plus
+          size={14}
+          weight="bold"
+          aria-hidden
+        />
+        Add set
+      </button>
+    </>
+  );
+}
+
+// Set rows for editing a finished workout in History: the workout's
+// inputs without the done toggle or the live comparison.
+function HistoryEditSetRows({
+  exercise,
+  rows,
+  updateSet,
+  addSet,
+  removeSet,
+}) {
+  const fields = [
+    {
+      field: "weight",
+      label: "weight in kg",
+    },
+    {
+      field: "reps",
+      label: "reps",
+    },
+    {
+      field: "rir",
+      label: "reps in reserve",
+    },
+  ];
+
+  return (
+    <>
+      {rows.length > 0 && (
+        <div
+          className="set-header set-header-six set-header-edit"
+          aria-hidden
+        >
+          <span>
+            Set
+          </span>
+
+          <span>
+            kg
+          </span>
+
+          <span>
+            Reps
+          </span>
+
+          <span>
+            RIR
+          </span>
+
+          <span />
+        </div>
+      )}
+
+      {rows.map(
+        (row, index) => (
+          <div
+            key={
+              row.id ??
+              `new-${index}`
+            }
+            className="set-row set-row-six set-row-edit"
+          >
+            <span className="set-number">
+              {index + 1}
+            </span>
+
+            {fields.map(
+              ({
+                field,
+                label,
+              }) => (
+                <input
+                  key={field}
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  aria-label={`${exercise.name} set ${index + 1} ${label}`}
+                  value={
+                    row[field]
+                  }
+                  placeholder={
+                    field === "rir"
+                      ? "0"
+                      : undefined
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    updateSet(
+                      exercise.id,
+                      index,
+                      field,
+                      event.target
+                        .value
+                    )
+                  }
+                />
+              )
+            )}
+
+            <button
+              className="remove-set-button"
+              aria-label={`Remove ${exercise.name} set ${index + 1}`}
+              onClick={() =>
+                removeSet(
+                  exercise.id,
+                  index
+                )
+              }
+            >
+              <X
+                size={15}
+                weight="bold"
+                aria-hidden
+              />
+            </button>
+          </div>
+        )
       )}
 
       <button
