@@ -258,9 +258,9 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | 0d7b494 | Progress name matching ignores case and spaces (`normalizeExerciseName`) |
 | 29128b3 | Performance: cached date formatters, History paging (40), `findLatestPerformances` for prefill and summary |
 | a55d6c1 | UI polish (Phosphor icons, no eyebrows, tokens, motion, App.css rewrite), coloured History, Month by month table, Discard from the workout screen, in-app confirmation sheet |
-| (uncommitted) | Edit the sets of a finished workout from History detail |
+| 43d4a35 | Edit the sets of a finished workout from History detail |
 
-Everything above is deployed to GitHub Pages (live bundle `index-DpV2S_FH.js` as of a55d6c1). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
+Everything above is deployed to GitHub Pages (live bundle `index-CHymEUbX.js` as of 43d4a35). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
 ## 13. Known limitations and tech debt
 
