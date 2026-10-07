@@ -44,6 +44,12 @@ Only push or deploy when asked. After a deploy, check Pages in a fresh/incognito
 - Statuses: `improved`, `same`, `regressed`, `new` (first ever, shown as a baseline), `skipped` (excluded from totals). Insufficient data shows as baseline/not enough data, never `0%`.
 - Upper/Lower is inferred from workout-day names containing "upper"/"lower".
 
+Deliberate choices (confirmed by the user 2026-10-07; don't "fix" them):
+- The 5–8 rep range is global, not each exercise's own `minReps`/`maxReps`.
+- History and the post-workout summary compare an exercise only within the same workout day (by exercise id). Progress and Monthly merge same-named exercises across days. Both are intended.
+- Monthly uses the last workout of each month per exercise and compares only with the previous calendar month.
+- The live set badge must apply the weight-up rule exactly as History does: weight up with reps in range always shows ↑, whatever the reps or RIR direction.
+
 **Workout behaviour.**
 
 - Optional exercises are included or skipped during the workout. A skip is not a regression; the last real performance is still shown with "Skipped last workout".
