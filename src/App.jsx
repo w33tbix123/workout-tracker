@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import {
@@ -706,11 +706,6 @@ function App() {
   ] = useState({});
 
   const [
-    activeExerciseIds,
-    setActiveExerciseIds,
-  ] = useState([]);
-
-  const [
     selectedAlternatives,
     setSelectedAlternatives,
   ] = useState({});
@@ -1360,6 +1355,51 @@ function App() {
   // AUTO SAVE ACTIVE WORKOUT
   // ============================================================
 
+  // The single place the paused-workout draft is built. `overrides`
+  // lets startWorkout supply values that aren't in state yet.
+  const makeCurrentDraft =
+    useCallback(
+      (overrides = {}) => ({
+        splitId:
+          selectedSplitId,
+
+        workoutDayId:
+          selectedDayId,
+
+        splitName:
+          selectedSplit?.name ||
+          "",
+
+        workoutDayName:
+          selectedDay?.name ||
+          "",
+
+        startedAt:
+          workoutStartedAt,
+
+        workoutSets,
+
+        selectedAlternatives,
+
+        includedOptional,
+
+        exerciseCompletionOrder,
+
+        ...overrides,
+      }),
+      [
+        selectedSplitId,
+        selectedDayId,
+        selectedSplit?.name,
+        selectedDay?.name,
+        workoutStartedAt,
+        workoutSets,
+        selectedAlternatives,
+        includedOptional,
+        exerciseCompletionOrder,
+      ]
+    );
+
   useEffect(() => {
     if (
       !activeWorkout ||
@@ -1369,84 +1409,93 @@ function App() {
       return;
     }
 
+    async function saveDraft() {
+      // Completing the workout deletes the draft; a save that was
+      // still pending must not write it back.
+      if (
+        finishingWorkoutRef.current
+      ) {
+        return;
+      }
+
+      const draft =
+        makeCurrentDraft();
+
+      try {
+        await db.appMeta.put(
+          {
+            key:
+              "activeWorkoutDraft",
+
+            value:
+              draft,
+          }
+        );
+
+        setPausedWorkout(
+          draft
+        );
+      } catch (error) {
+        console.error(
+          "Could not save workout draft:",
+          error
+        );
+      }
+    }
+
     const timer =
       setTimeout(
-        async () => {
-          // Completing the workout deletes the draft; a save that was
-          // still pending must not write it back.
-          if (
-            finishingWorkoutRef.current
-          ) {
-            return;
-          }
-
-          const draft = {
-            splitId:
-              selectedSplitId,
-
-            workoutDayId:
-              selectedDayId,
-
-            splitName:
-              selectedSplit?.name ||
-              "",
-
-            workoutDayName:
-              selectedDay?.name ||
-              "",
-
-            startedAt:
-              workoutStartedAt,
-
-            workoutSets,
-
-            activeExerciseIds,
-
-            selectedAlternatives,
-
-            includedOptional,
-
-            exerciseCompletionOrder,
-          };
-
-          try {
-            await db.appMeta.put(
-              {
-                key:
-                  "activeWorkoutDraft",
-
-                value:
-                  draft,
-              }
-            );
-
-            setPausedWorkout(
-              draft
-            );
-          } catch (error) {
-            console.error(
-              "Could not save workout draft:",
-              error
-            );
-          }
-        },
+        saveDraft,
         150
       );
 
-    return () =>
+    // iOS can suspend or kill a backgrounded PWA immediately, so save
+    // right away instead of waiting for the debounce.
+    function saveNowIfHidden() {
+      if (
+        document.visibilityState ===
+        "hidden"
+      ) {
+        clearTimeout(timer);
+
+        saveDraft();
+      }
+    }
+
+    function saveNow() {
       clearTimeout(timer);
+
+      saveDraft();
+    }
+
+    document.addEventListener(
+      "visibilitychange",
+      saveNowIfHidden
+    );
+
+    window.addEventListener(
+      "pagehide",
+      saveNow
+    );
+
+    return () => {
+      clearTimeout(timer);
+
+      document.removeEventListener(
+        "visibilitychange",
+        saveNowIfHidden
+      );
+
+      window.removeEventListener(
+        "pagehide",
+        saveNow
+      );
+    };
   }, [
     activeWorkout,
-    selectedSplitId,
     selectedDayId,
-    selectedSplit?.name,
-    selectedDay?.name,
     workoutStartedAt,
-    workoutSets,
-    activeExerciseIds,
-    selectedAlternatives,
-    includedOptional,
-    exerciseCompletionOrder,
+    makeCurrentDraft,
   ]);
 
   // ============================================================
@@ -3580,8 +3629,6 @@ function App() {
 
     const initialSets = {};
 
-    const initialActiveIds = [];
-
     const initialAlternatives = {};
 
     (
@@ -3597,6 +3644,8 @@ function App() {
       }
     );
 
+    // Each alternative group starts on its most recently performed
+    // member (else the first one).
     const handledGroups =
       new Set();
 
@@ -3674,61 +3723,29 @@ function App() {
               exercise.alternativeGroup
             ] =
               defaultExercise.id;
-
-            initialActiveIds.push(
-              defaultExercise.id
-            );
           }
-
-          return;
         }
-
-        if (
-          exercise.optional
-        ) {
-          return;
-        }
-
-        initialActiveIds.push(
-          exercise.id
-        );
       }
     );
 
     const startedAt =
       new Date().toISOString();
 
-    const draft = {
-      splitId:
-        selectedSplitId,
+    const draft =
+      makeCurrentDraft({
+        startedAt,
 
-      workoutDayId:
-        selectedDayId,
+        workoutSets:
+          initialSets,
 
-      splitName:
-        selectedSplit?.name ||
-        "",
+        selectedAlternatives:
+          initialAlternatives,
 
-      workoutDayName:
-        selectedDay?.name ||
-        "",
+        includedOptional: {},
 
-      startedAt,
-
-      workoutSets:
-        initialSets,
-
-      activeExerciseIds:
-        initialActiveIds,
-
-      selectedAlternatives:
-        initialAlternatives,
-
-      includedOptional: {},
-
-      exerciseCompletionOrder:
-        [],
-    };
+        exerciseCompletionOrder:
+          [],
+      });
 
     await db.appMeta.put({
       key:
@@ -3744,10 +3761,6 @@ function App() {
 
     setWorkoutSets(
       initialSets
-    );
-
-    setActiveExerciseIds(
-      initialActiveIds
     );
 
     setSelectedAlternatives(
@@ -3836,17 +3849,6 @@ function App() {
     groupName,
     exerciseId
   ) {
-    const group =
-      alternativeGroups[
-        groupName
-      ] || [];
-
-    const groupIds =
-      group.map(
-        (exercise) =>
-          exercise.id
-      );
-
     setSelectedAlternatives(
       (previous) => ({
         ...previous,
@@ -3855,65 +3857,33 @@ function App() {
           exerciseId,
       })
     );
-
-    setActiveExerciseIds(
-      (previous) => [
-        ...previous.filter(
-          (id) =>
-            !groupIds.includes(
-              id
-            )
-        ),
-
-        exerciseId,
-      ]
-    );
   }
 
+  // `optionalKey` is the exercise id, or "group:<name>" for an optional
+  // alternative group.
   function includeOptionalExercise(
-    exerciseId
+    optionalKey
   ) {
     setIncludedOptional(
       (previous) => ({
         ...previous,
 
-        [exerciseId]:
+        [optionalKey]:
           true,
       })
-    );
-
-    setActiveExerciseIds(
-      (previous) =>
-        previous.includes(
-          exerciseId
-        )
-          ? previous
-          : [
-              ...previous,
-              exerciseId,
-            ]
     );
   }
 
   function skipOptionalExercise(
-    exerciseId
+    optionalKey
   ) {
     setIncludedOptional(
       (previous) => ({
         ...previous,
 
-        [exerciseId]:
+        [optionalKey]:
           false,
       })
-    );
-
-    setActiveExerciseIds(
-      (previous) =>
-        previous.filter(
-          (id) =>
-            id !==
-            exerciseId
-        )
     );
   }
 
@@ -4132,37 +4102,6 @@ function App() {
   // PAUSE / RESUME
   // ============================================================
 
-  function makeCurrentDraft() {
-    return {
-      splitId:
-        selectedSplitId,
-
-      workoutDayId:
-        selectedDayId,
-
-      splitName:
-        selectedSplit?.name ||
-        "",
-
-      workoutDayName:
-        selectedDay?.name ||
-        "",
-
-      startedAt:
-        workoutStartedAt,
-
-      workoutSets,
-
-      activeExerciseIds,
-
-      selectedAlternatives,
-
-      includedOptional,
-
-      exerciseCompletionOrder,
-    };
-  }
-
   async function leaveActiveWorkout() {
     const draft =
       makeCurrentDraft();
@@ -4261,11 +4200,6 @@ function App() {
         {}
     );
 
-    setActiveExerciseIds(
-      draft.activeExerciseIds ||
-        []
-    );
-
     setSelectedAlternatives(
       draft.selectedAlternatives ||
         {}
@@ -4315,19 +4249,29 @@ function App() {
       "activeWorkoutDraft"
     );
 
+    resetWorkoutState();
+  }
+
+  // Clears every piece of in-memory workout state (after discard or
+  // finish). Doesn't touch the database.
+  function resetWorkoutState() {
     setPausedWorkout(
       null
+    );
+
+    setActiveWorkout(
+      false
     );
 
     setWorkoutStartedAt(
       null
     );
 
-    setWorkoutSets({});
-
-    setActiveExerciseIds(
-      []
+    setWorkoutProgressOpen(
+      false
     );
+
+    setWorkoutSets({});
 
     setSelectedAlternatives(
       {}
@@ -4703,39 +4647,7 @@ function App() {
       console.error(error);
     }
 
-    setPausedWorkout(
-      null
-    );
-
-    setActiveWorkout(
-      false
-    );
-
-    setWorkoutStartedAt(
-      null
-    );
-
-    setWorkoutProgressOpen(
-      false
-    );
-
-    setWorkoutSets({});
-
-    setActiveExerciseIds(
-      []
-    );
-
-    setSelectedAlternatives(
-      {}
-    );
-
-    setIncludedOptional(
-      {}
-    );
-
-    setExerciseCompletionOrder(
-      []
-    );
+    resetWorkoutState();
 
     setSelectedDayId(
       null
@@ -5958,15 +5870,9 @@ function App() {
       summaryData.overallPercentage ===
         undefined
         ? "same"
-        : summaryData
-            .overallPercentage >
-          0.05
-        ? "improved"
-        : summaryData
-            .overallPercentage <
-          -0.05
-        ? "regressed"
-        : "same";
+        : getProgressStatus(
+            summaryData.overallPercentage
+          );
 
     return (
       <div className="app summary-app app-with-fixed-back">
