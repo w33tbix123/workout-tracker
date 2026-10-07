@@ -4045,21 +4045,18 @@ function App() {
             );
           }
 
+          // Saved sets are numbered 1..n in order, so next time's
+          // prefill and live comparison line up set-for-set even when
+          // an earlier row was left unchecked.
           completed.forEach(
-            (set) => {
-              const originalIndex =
-                sets.indexOf(
-                  set
-                );
-
+            (set, index) => {
               completedSets.push(
                 {
                   exerciseId:
                     selectedId,
 
                   setNumber:
-                    originalIndex +
-                    1,
+                    index + 1,
 
                   setType:
                     "working",
@@ -4119,20 +4116,14 @@ function App() {
         }
 
         completed.forEach(
-          (set) => {
-            const originalIndex =
-              sets.indexOf(
-                set
-              );
-
+          (set, index) => {
             completedSets.push(
               {
                 exerciseId:
                   exercise.id,
 
                 setNumber:
-                  originalIndex +
-                  1,
+                  index + 1,
 
                 setType:
                   "working",
