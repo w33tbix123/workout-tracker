@@ -1903,24 +1903,29 @@ function App() {
           bestE1RMRecord
             ?.value || 0;
 
-        const first =
-          sessionData[0]
-            ?.bestE1RM ||
-          0;
+        // Same rule as History / Monthly: weight up with reps in the
+        // working range counts as progression by the load increase.
+        const firstBest =
+          getBestSet(
+            sessionData[0]
+              ?.sets || []
+          );
 
-        const latest =
-          sessionData[
-            sessionData.length -
-              1
-          ]?.bestE1RM ||
-          0;
+        const latestBest =
+          getBestSet(
+            sessionData[
+              sessionData.length -
+                1
+            ]?.sets || []
+          );
 
         const change =
-          first > 0
-            ? ((latest -
-                first) /
-                first) *
-              100
+          firstBest &&
+          latestBest
+            ? resolveExerciseProgress(
+                latestBest,
+                firstBest
+              ).percentageChange ?? 0
             : 0;
 
         return {
