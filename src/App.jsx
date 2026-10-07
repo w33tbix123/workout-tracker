@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 
 import {
@@ -744,6 +744,23 @@ function App() {
     setNowTick,
   ] = useState(null);
 
+  // Guards Complete Workout against a second tap while it is saving.
+  // The ref blocks immediately; the state disables the button.
+  const finishingWorkoutRef =
+    useRef(false);
+
+  const [
+    finishingWorkout,
+    setFinishingWorkout,
+  ] = useState(false);
+
+  useEffect(() => {
+    if (!activeWorkout) {
+      finishingWorkoutRef.current =
+        false;
+    }
+  }, [activeWorkout]);
+
   // ============================================================
   // LOAD PAUSED WORKOUT
   // ============================================================
@@ -1255,6 +1272,14 @@ function App() {
     const timer =
       setTimeout(
         async () => {
+          // Completing the workout deletes the draft; a save that was
+          // still pending must not write it back.
+          if (
+            finishingWorkoutRef.current
+          ) {
+            return;
+          }
+
           const draft = {
             splitId:
               selectedSplitId,
@@ -4077,6 +4102,12 @@ function App() {
   // ============================================================
 
   async function finishWorkout() {
+    if (
+      finishingWorkoutRef.current
+    ) {
+      return;
+    }
+
     const completedSets = [];
 
     const skippedExerciseIds = [];
@@ -4273,6 +4304,40 @@ function App() {
       return;
     }
 
+    finishingWorkoutRef.current =
+      true;
+
+    setFinishingWorkout(
+      true
+    );
+
+    let saved = false;
+
+    try {
+      saved =
+        await saveFinishedWorkout(
+          completedSets,
+          skippedExerciseIds
+        );
+    } finally {
+      // After a successful save the ref stays set until the workout
+      // screen has closed (see the effect on activeWorkout), so no
+      // pending autosave can recreate the deleted draft.
+      if (!saved) {
+        finishingWorkoutRef.current =
+          false;
+      }
+
+      setFinishingWorkout(
+        false
+      );
+    }
+  }
+
+  async function saveFinishedWorkout(
+    completedSets,
+    skippedExerciseIds
+  ) {
     const currentOrderKeys =
       getCurrentUniqueOrderKeys();
 
@@ -4307,56 +4372,91 @@ function App() {
       )
     );
 
-    const sessionId =
-      await db.sessions.add(
-        {
-          workoutDayId:
-            selectedDayId,
+    // Session, sets and draft removal succeed or fail together: either
+    // the workout is saved once and the draft is gone, or nothing is
+    // written and the draft is still there to try again.
+    let sessionId;
 
-          date: completedAt,
+    try {
+      sessionId =
+        await db.transaction(
+          "rw",
+          db.sessions,
+          db.sets,
+          db.appMeta,
+          async () => {
+            const newSessionId =
+              await db.sessions.add(
+                {
+                  workoutDayId:
+                    selectedDayId,
 
-          startedAt:
-            workoutStartedAt,
+                  date: completedAt,
 
-          completedAt,
+                  startedAt:
+                    workoutStartedAt,
 
-          durationSeconds,
+                  completedAt,
 
-          skippedExerciseIds,
+                  durationSeconds,
 
-          completedSetCount:
-            completedSets.length,
+                  skippedExerciseIds,
 
-          exerciseOrderKeys:
-            finalExerciseOrder,
-        }
+                  completedSetCount:
+                    completedSets.length,
+
+                  exerciseOrderKeys:
+                    finalExerciseOrder,
+                }
+              );
+
+            if (
+              completedSets.length
+            ) {
+              await db.sets.bulkAdd(
+                completedSets.map(
+                  (set) => ({
+                    ...set,
+                    sessionId:
+                      newSessionId,
+                  })
+                )
+              );
+            }
+
+            await db.appMeta.delete(
+              "activeWorkoutDraft"
+            );
+
+            return newSessionId;
+          }
+        );
+    } catch (error) {
+      console.error(error);
+
+      alert(
+        `The workout could not be saved. Nothing was lost; your workout is still open.\n\n${error.message}`
       );
 
-    if (
-      completedSets.length
-    ) {
-      await db.sets.bulkAdd(
-        completedSets.map(
-          (set) => ({
-            ...set,
-            sessionId,
-          })
-        )
-      );
+      return false;
     }
 
-    const summary =
-      await buildWorkoutSummary(
-        sessionId,
-        completedSets,
-        skippedExerciseIds,
-        durationSeconds,
-        completedAt
-      );
+    // The workout is already saved at this point, so a summary failure
+    // must not leave the workout open (finishing again would duplicate it).
+    let summary = null;
 
-    await db.appMeta.delete(
-      "activeWorkoutDraft"
-    );
+    try {
+      summary =
+        await buildWorkoutSummary(
+          sessionId,
+          completedSets,
+          skippedExerciseIds,
+          durationSeconds,
+          completedAt
+        );
+    } catch (error) {
+      console.error(error);
+    }
 
     setPausedWorkout(
       null
@@ -4405,8 +4505,12 @@ function App() {
     );
 
     setActiveTab(
-      "summary"
+      summary
+        ? "summary"
+        : "history"
     );
+
+    return true;
   }
 
   // ============================================================
@@ -6265,8 +6369,13 @@ function App() {
           onClick={
             finishWorkout
           }
+          disabled={
+            finishingWorkout
+          }
         >
-          Complete Workout
+          {finishingWorkout
+            ? "Saving…"
+            : "Complete Workout"}
         </button>
 
         {renderExerciseForm()}
