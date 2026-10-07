@@ -404,6 +404,14 @@ function resolveExerciseProgress(
   };
 }
 
+// Progress and Monthly treat same-named exercises on different days as
+// one exercise; names match regardless of case and surrounding spaces.
+function normalizeExerciseName(name) {
+  return String(name ?? "")
+    .trim()
+    .toLowerCase();
+}
+
 function formatProgressPercentage(value) {
   const safeValue = Number.isFinite(Number(value))
     ? Number(value)
@@ -1847,14 +1855,46 @@ function App() {
         const all =
           await db.exercises.toArray();
 
-        return [
-          ...new Set(
-            all.map(
-              (exercise) =>
+        // One entry per normalised name, preferring a current
+        // (non-archived) exercise's spelling.
+        const byName =
+          new Map();
+
+        all.forEach(
+          (exercise) => {
+            const key =
+              normalizeExerciseName(
                 exercise.name
-            )
-          ),
-        ].sort(
+              );
+
+            if (!key) {
+              return;
+            }
+
+            const existing =
+              byName.get(key);
+
+            if (
+              !existing ||
+              (existing.archived &&
+                !exercise.archived)
+            ) {
+              byName.set(
+                key,
+                exercise
+              );
+            }
+          }
+        );
+
+        return [
+          ...byName.values(),
+        ]
+          .map(
+            (exercise) =>
+              exercise.name.trim()
+          )
+          .sort(
           (a, b) =>
             a.localeCompare(
               b
@@ -1893,8 +1933,12 @@ function App() {
         const matchingExercises =
           allExercises.filter(
             (exercise) =>
-              exercise.name ===
-              selectedProgressExercise
+              normalizeExerciseName(
+                exercise.name
+              ) ===
+              normalizeExerciseName(
+                selectedProgressExercise
+              )
           );
 
         const exerciseIds =
@@ -2312,14 +2356,16 @@ function App() {
                 // Match the same exercise across Upper A / Upper B or
                 // Lower A / Lower B by exercise name, just like the
                 // individual Progress tab does.
-                const exerciseKey = exercise.name
-                  .trim()
-                  .toLowerCase();
+                const exerciseKey =
+                  normalizeExerciseName(
+                    exercise.name
+                  );
 
                 monthlyPerformances[bodyType][monthKey][exerciseKey] = {
                   weight: best.weight,
                   reps: best.reps,
                   score: best.score,
+                  effectiveReps: best.effectiveReps,
                   date: session.date,
                   exerciseName: exercise.name,
                 };
