@@ -957,16 +957,33 @@ function App() {
     }
   );
 
+  // Falls back to the group's first member when nothing is selected or
+  // the selected alternative has since been removed from the group.
   function getSelectedAlternative(
     groupName
   ) {
-    return (
-      selectedAlternatives[
-        groupName
-      ] ??
+    const group =
       alternativeGroups[
         groupName
-      ]?.[0]?.id ??
+      ] || [];
+
+    const selectedId =
+      selectedAlternatives[
+        groupName
+      ];
+
+    if (
+      group.some(
+        (item) =>
+          item.id ===
+          selectedId
+      )
+    ) {
+      return selectedId;
+    }
+
+    return (
+      group[0]?.id ??
       null
     );
   }
@@ -2268,6 +2285,67 @@ function App() {
   // SPLIT MANAGEMENT
   // ============================================================
 
+  // The workout in progress (running or paused), used to stop archiving
+  // anything it still needs. Archived exercises are hidden from the
+  // workout and skipped on finish, so their logged sets would be lost.
+  function getWorkoutInProgress() {
+    if (activeWorkout) {
+      return {
+        splitId:
+          selectedSplitId,
+
+        workoutDayId:
+          selectedDayId,
+
+        workoutSets,
+      };
+    }
+
+    return pausedWorkout || null;
+  }
+
+  function findExercisesWithLoggedSets(
+    exercisesToArchive
+  ) {
+    const inProgress =
+      getWorkoutInProgress();
+
+    if (!inProgress) {
+      return [];
+    }
+
+    return exercisesToArchive.filter(
+      (exercise) =>
+        (
+          inProgress.workoutSets?.[
+            exercise.id
+          ] || []
+        ).some(
+          (set) =>
+            set.completed
+        )
+    );
+  }
+
+  function warnWorkoutInProgress() {
+    alert(
+      "This is part of the workout in progress. Finish or discard that workout first."
+    );
+  }
+
+  function warnLoggedSets(
+    exercisesWithSets
+  ) {
+    alert(
+      `${exercisesWithSets
+        .map(
+          (exercise) =>
+            exercise.name
+        )
+        .join(", ")} has completed sets in the workout in progress. Untick those sets or finish the workout before removing it.`
+    );
+  }
+
   function openNewSplit() {
     setEditingSplitId(
       null
@@ -2336,6 +2414,16 @@ function App() {
   async function deleteSplit(
     split
   ) {
+    if (
+      getWorkoutInProgress()
+        ?.splitId ===
+      split.id
+    ) {
+      warnWorkoutInProgress();
+
+      return;
+    }
+
     const confirmed =
       window.confirm(
         `Remove "${split.name}"?\n\nPrevious workout history will stay saved.`
@@ -2499,6 +2587,16 @@ function App() {
   async function deleteDay(
     day
   ) {
+    if (
+      getWorkoutInProgress()
+        ?.workoutDayId ===
+      day.id
+    ) {
+      warnWorkoutInProgress();
+
+      return;
+    }
+
     const confirmed =
       window.confirm(
         `Remove "${day.name}"?\n\nPrevious workouts will remain in History.`
@@ -2508,31 +2606,38 @@ function App() {
       return;
     }
 
-    await db.workoutDays.update(
-      day.id,
-      {
-        archived: true,
+    await db.transaction(
+      "rw",
+      db.workoutDays,
+      db.exercises,
+      async () => {
+        await db.workoutDays.update(
+          day.id,
+          {
+            archived: true,
+          }
+        );
+
+        const dayExercises =
+          await db.exercises
+            .where(
+              "workoutDayId"
+            )
+            .equals(day.id)
+            .toArray();
+
+        for (
+          const exercise of dayExercises
+        ) {
+          await db.exercises.update(
+            exercise.id,
+            {
+              archived: true,
+            }
+          );
+        }
       }
     );
-
-    const dayExercises =
-      await db.exercises
-        .where(
-          "workoutDayId"
-        )
-        .equals(day.id)
-        .toArray();
-
-    for (
-      const exercise of dayExercises
-    ) {
-      await db.exercises.update(
-        exercise.id,
-        {
-          archived: true,
-        }
-      );
-    }
 
     setSelectedDayId(
       null
@@ -2877,6 +2982,46 @@ function App() {
         );
       }
 
+      // Alternatives about to be archived must not hold completed sets
+      // from the workout in progress.
+      const idsInForm =
+        new Set(
+          alternativeEntries
+            .map(
+              (entry) =>
+                entry.id
+            )
+            .filter(
+              (id) =>
+                id !== null
+            )
+        );
+
+      const partnersToArchive =
+        exerciseForm.hasAlternative
+          ? partners.filter(
+              (partner) =>
+                !idsInForm.has(
+                  partner.id
+                )
+            )
+          : partners;
+
+      const withLoggedSets =
+        findExercisesWithLoggedSets(
+          partnersToArchive
+        );
+
+      if (
+        withLoggedSets.length
+      ) {
+        warnLoggedSets(
+          withLoggedSets
+        );
+
+        return;
+      }
+
       if (
         exerciseForm.hasAlternative
       ) {
@@ -3197,6 +3342,38 @@ function App() {
   async function deleteExercise(
     exercise
   ) {
+    const toArchive =
+      exercise.alternativeGroup
+        ? await db.exercises
+            .where(
+              "workoutDayId"
+            )
+            .equals(
+              exercise.workoutDayId
+            )
+            .filter(
+              (item) =>
+                item.alternativeGroup ===
+                exercise.alternativeGroup
+            )
+            .toArray()
+        : [exercise];
+
+    const withLoggedSets =
+      findExercisesWithLoggedSets(
+        toArchive
+      );
+
+    if (
+      withLoggedSets.length
+    ) {
+      warnLoggedSets(
+        withLoggedSets
+      );
+
+      return;
+    }
+
     const confirmed =
       window.confirm(
         `Remove "${exercise.name}"?\n\nPrevious workout history will remain.`
@@ -3206,37 +3383,11 @@ function App() {
       return;
     }
 
-    if (
-      exercise.alternativeGroup
+    for (
+      const item of toArchive
     ) {
-      const group =
-        await db.exercises
-          .where(
-            "workoutDayId"
-          )
-          .equals(
-            exercise.workoutDayId
-          )
-          .filter(
-            (item) =>
-              item.alternativeGroup ===
-              exercise.alternativeGroup
-          )
-          .toArray();
-
-      for (
-        const item of group
-      ) {
-        await db.exercises.update(
-          item.id,
-          {
-            archived: true,
-          }
-        );
-      }
-    } else {
       await db.exercises.update(
-        exercise.id,
+        item.id,
         {
           archived: true,
         }
@@ -3983,9 +4134,14 @@ function App() {
         draft.workoutDayId
       );
 
-    if (!day) {
+    // An archived day's exercises are hidden, so resuming would show an
+    // empty workout and finishing would save nothing.
+    if (
+      !day ||
+      day.archived
+    ) {
       alert(
-        "This workout day no longer exists."
+        "This workout day has been removed, so the workout can't be resumed. You can discard it from Home."
       );
 
       return;
