@@ -577,6 +577,9 @@ const EMPTY_EXERCISE_FORM = {
   optional: false,
   hasAlternative: false,
   alternatives: [""],
+  // Database id of each alternative row (null for new ones), kept in
+  // step with `alternatives` so renames update the right record.
+  alternativeIds: [null],
 };
 
 // ============================================================
@@ -2537,6 +2540,8 @@ function App() {
 
     let alternatives = [""];
 
+    let alternativeIds = [null];
+
     if (
       exercise.alternativeGroup
     ) {
@@ -2574,6 +2579,12 @@ function App() {
           partners.map(
             (partner) =>
               partner.name
+          );
+
+        alternativeIds =
+          partners.map(
+            (partner) =>
+              partner.id
           );
       }
     }
@@ -2613,6 +2624,8 @@ function App() {
       hasAlternative,
 
       alternatives,
+
+      alternativeIds,
     });
 
     setShowExerciseForm(
@@ -2632,15 +2645,34 @@ function App() {
       return;
     }
 
-    const alternativeNames =
+    const alternativeEntries =
       (
         exerciseForm.alternatives ||
         []
       )
-        .map((value) =>
-          String(value).trim()
+        .map(
+          (value, index) => ({
+            name: String(
+              value
+            ).trim(),
+
+            id:
+              exerciseForm
+                .alternativeIds?.[
+                index
+              ] ?? null,
+          })
         )
-        .filter(Boolean);
+        .filter(
+          (entry) =>
+            entry.name
+        );
+
+    const alternativeNames =
+      alternativeEntries.map(
+        (entry) =>
+          entry.name
+      );
 
     if (
       exerciseForm.hasAlternative &&
@@ -2841,40 +2873,56 @@ function App() {
           }
         );
 
-        const baseOrder =
-          Number(
-            current.order
-          ) || 0;
+        // Partners are matched by database id, never by position, so
+        // removing or reordering an alternative can't rename another
+        // record (and move its history to a different name). Existing
+        // partners keep their order; new ones go after the group.
+        const partnerIds =
+          new Set(
+            partners.map(
+              (partner) =>
+                partner.id
+            )
+          );
+
+        const keptIds =
+          new Set();
+
+        let nextOrder =
+          Math.max(
+            Number(
+              current.order
+            ) || 0,
+            ...partners.map(
+              (partner) =>
+                Number(
+                  partner.order
+                ) || 0
+            )
+          );
 
         for (
-          let index = 0;
-          index <
-          alternativeNames.length;
-          index++
+          const entry of alternativeEntries
         ) {
-          const partnerName =
-            alternativeNames[
-              index
-            ];
-
-          const existingPartner =
-            partners[index];
-
-          const partnerOrder =
-            baseOrder +
-            (index + 1) * 0.01;
-
           if (
-            existingPartner
+            entry.id !==
+              null &&
+            partnerIds.has(
+              entry.id
+            ) &&
+            !keptIds.has(
+              entry.id
+            )
           ) {
+            keptIds.add(
+              entry.id
+            );
+
             await db.exercises.update(
-              existingPartner.id,
+              entry.id,
               {
                 name:
-                  partnerName,
-
-                order:
-                  partnerOrder,
+                  entry.name,
 
                 alternativeGroup:
                   group,
@@ -2883,16 +2931,18 @@ function App() {
               }
             );
           } else {
+            nextOrder += 0.01;
+
             await db.exercises.add(
               {
                 workoutDayId:
                   current.workoutDayId,
 
                 name:
-                  partnerName,
+                  entry.name,
 
                 order:
-                  partnerOrder,
+                  nextOrder,
 
                 alternativeGroup:
                   group,
@@ -2905,19 +2955,21 @@ function App() {
 
         // Archive any old partners that were removed from the group.
         for (
-          let index =
-            alternativeNames.length;
-          index <
-          partners.length;
-          index++
+          const partner of partners
         ) {
-          await db.exercises.update(
-            partners[index].id,
-            {
-              archived:
-                true,
-            }
-          );
+          if (
+            !keptIds.has(
+              partner.id
+            )
+          ) {
+            await db.exercises.update(
+              partner.id,
+              {
+                archived:
+                  true,
+              }
+            );
+          }
         }
       } else {
         await db.exercises.update(
@@ -5428,22 +5480,43 @@ function App() {
                       <button
                         className="remove-alternative-button"
                         onClick={() => {
-                          const next =
-                            (
-                              exerciseForm.alternatives ||
-                              []
-                            ).filter(
+                          const keep = (
+                            _,
+                            itemIndex
+                          ) =>
+                            itemIndex !==
+                            index;
+
+                          const names =
+                            exerciseForm.alternatives ||
+                            [];
+
+                          const ids =
+                            names.map(
                               (
                                 _,
                                 itemIndex
                               ) =>
-                                itemIndex !==
-                                index
+                                exerciseForm
+                                  .alternativeIds?.[
+                                  itemIndex
+                                ] ?? null
                             );
 
-                          change(
-                            "alternatives",
-                            next
+                          setExerciseForm(
+                            (previous) => ({
+                              ...previous,
+
+                              alternatives:
+                                names.filter(
+                                  keep
+                                ),
+
+                              alternativeIds:
+                                ids.filter(
+                                  keep
+                                ),
+                            })
                           );
                         }}
                       >
@@ -5457,13 +5530,33 @@ function App() {
               <button
                 className="add-alternative-button"
                 onClick={() => {
-                  change(
-                    "alternatives",
-                    [
-                      ...(exerciseForm.alternatives ||
-                        []),
-                      "",
-                    ]
+                  const names =
+                    exerciseForm.alternatives ||
+                    [];
+
+                  setExerciseForm(
+                    (previous) => ({
+                      ...previous,
+
+                      alternatives: [
+                        ...names,
+                        "",
+                      ],
+
+                      alternativeIds: [
+                        ...names.map(
+                          (
+                            _,
+                            itemIndex
+                          ) =>
+                            exerciseForm
+                              .alternativeIds?.[
+                              itemIndex
+                            ] ?? null
+                        ),
+                        null,
+                      ],
+                    })
                   );
                 }}
               >
