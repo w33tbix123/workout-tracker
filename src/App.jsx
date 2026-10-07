@@ -6497,7 +6497,8 @@ function App() {
   if (
     activeTab ===
       "home" &&
-    selectedSplitId
+    selectedSplitId &&
+    !workoutProgressOpen
   ) {
     return (
       <div className="app app-with-fixed-back">
