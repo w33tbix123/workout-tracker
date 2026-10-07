@@ -256,8 +256,9 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | b87aae3 | Sticky workout header clears the back button; summary subtitle shows finish time; "1 working set" |
 | 0d7b494 | Progress name matching ignores case and spaces (`normalizeExerciseName`) |
 | 29128b3 | Performance: cached date formatters, History paging (40), `findLatestPerformances` for prefill and summary |
+| a55d6c1 | UI polish (Phosphor icons, no eyebrows, tokens, motion, App.css rewrite), coloured History, Month by month table, Discard from the workout screen, in-app confirmation sheet |
 
-Everything above is deployed to GitHub Pages (live bundle `index-cVhYG4Ia.js` as of ddc3702). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
+Everything above is deployed to GitHub Pages (live bundle `index-DpV2S_FH.js` as of a55d6c1). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
 ## 13. Known limitations and tech debt
 
