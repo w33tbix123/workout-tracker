@@ -68,36 +68,38 @@ Split → Workout Day → Exercise; Workout Day → Session → Set. Exercise re
 
 **Session record:** `workoutDayId, date (= completedAt ISO), startedAt, completedAt, durationSeconds, skippedExerciseIds, completedSetCount, exerciseOrderKeys`. Imported baselines may carry `baselineImport`.
 
-**Set record:** `sessionId, exerciseId, setNumber (1..n, sequential since 8fc2b7f), setType ("working"), weight, reps, rir` as numbers. Only completed sets are saved. Older data may have gaps in `setNumber`; readers sort by `setNumber` and use array position, so gaps are harmless.
+**Set record:** `sessionId, exerciseId, setNumber (1..n, sequential since 8fc2b7f), setType ("working"), weight, reps, rir` as numbers. Only completed sets are saved; weight may be 0 (bodyweight), reps are always > 0. Older data may have gaps in `setNumber`; readers sort by `setNumber` and use array position, so gaps are harmless.
 
 **`appMeta` keys:** `initialSeedComplete`, `activeWorkoutDraft`, plus the one-time helper keys above.
 
-**`activeWorkoutDraft.value`:** `splitId, workoutDayId, splitName, workoutDayName, startedAt, workoutSets, activeExerciseIds, selectedAlternatives, includedOptional, exerciseCompletionOrder`.
+**`activeWorkoutDraft.value`:** `splitId, workoutDayId, splitName, workoutDayName, startedAt, workoutSets, selectedAlternatives, includedOptional, exerciseCompletionOrder`. Built only by `makeCurrentDraft`.
 - `workoutSets`: `{ [exerciseId]: [{ weight, reps, rir, completed }] }`. Values are a mix of strings (typed) and numbers (prefilled).
 - `selectedAlternatives`: `{ [alternativeGroup]: exerciseId }`.
 - `includedOptional`: plain optional exercises keyed by exercise id; optional alternative groups keyed by `"group:<alternativeGroup>"` (since 096a8e0). `true` = included, `false` = skipped, absent = undecided.
-- `activeExerciseIds` is written and persisted but never read (dead state; may contain `group:` strings).
+- Drafts from builds before f540eca also contain `activeExerciseIds`; it's ignored.
 
 ## 5. App.jsx architecture
 
 Line numbers are approximate; grep for the names.
 
-### Top-level helpers (lines ~30–580)
-- Input: `normalizeDecimalInput` (comma→dot, strips junk, keeps a leading `-`), `parseDecimal`, `getRIRValue` (blank → 0).
+### Top-level helpers (lines ~30–700)
+- Input: `normalizeDecimalInput` (comma→dot, keeps only digits and one dot; no `-`), `parseDecimal`, `getRIRValue` (blank → 0).
 - Strength: `calculateE1RM(w, r, rir) = w × (1 + (r + rir)/30)` (0 if w≤0 or r≤0), `getTotalVolume`.
-- Progression: `getProgressStatus` (±0.05 % threshold), `PROGRESSION_REP_MIN/MAX = 5/8`, `getBestSet` (highest e1RM set → `{weight, reps, score}`), `resolveExerciseProgress(current, previous)`, `formatProgressPercentage`, `compareSet(current, previous)` (live per-set badge).
+- Progression: `getProgressStatus` (±0.05 % threshold), `PROGRESSION_REP_MIN/MAX = 5/8`, `getBestSet` (highest e1RM set, ties by reps + RIR → `{weight, reps, score, effectiveReps}`; accepts 0 kg), `resolveExerciseProgress(current, previous)`, `formatProgressPercentage`, `compareSet(current, previous)` (live per-set badge, diffs rounded to 2 dp).
+- Lookups: `findLatestPerformances(exerciseIds, sessionsNewestFirst)` → `Map(exerciseId → {session, sets})` via one indexed `sets.where("exerciseId").equals(id)` per exercise (not `anyOf`, which was much slower inside a live query). Used by `previousExerciseData` and `buildWorkoutSummary`. `normalizeExerciseName` (trim + lower-case) for name matching.
 - Order: `getExerciseOrderKey` → `group:<alternativeGroup>` or `exercise:<id>`.
-- Formatting: `formatDate` (en-ZA long), `formatShortDate`, `formatTime`, `formatDuration` (`mm:ss` / `h:mm:ss`).
-- `EMPTY_EXERCISE_FORM` (new exercises default 5–8 reps in the form; seeded ones are 6–8).
+- Formatting: `formatDate` (en-ZA long), `formatShortDate`, `formatTime`, `formatDuration` (`mm:ss` / `h:mm:ss`). The date formatters use `Intl.DateTimeFormat` instances created once; `toLocaleDateString` with options per call was the main cost of rendering History.
+- `HISTORY_PAGE_SIZE = 40`, `EMPTY_EXERCISE_FORM` (new exercises default 5–8 reps in the form; seeded ones are 6–8).
 
 ### State in `App` (~590+)
 - Navigation: `activeTab` (`home|history|progress|settings|summary`), `selectedSplitId`, `selectedDayId`, `selectedHistorySessionId`, `workoutProgressOpen`, `historyProgressReturn {sessionId, scrollY}`.
-- Workout: `activeWorkout`, `workoutStartedAt`, `pausedWorkout`, `workoutSets`, `activeExerciseIds`, `selectedAlternatives`, `includedOptional`, `exerciseCompletionOrder`, `nowTick` (1 s timer tick), `finishingWorkout` + `finishingWorkoutRef` (Complete guard).
-- Filters/forms: `historySearch/Month/Year`, `selectedProgressExercise`, `progressSearch`, split/day/exercise form state (`exerciseForm` includes `alternatives` + parallel `alternativeIds`), `summaryData`.
+- Workout: `activeWorkout`, `workoutStartedAt`, `pausedWorkout`, `workoutSets`, `selectedAlternatives`, `includedOptional`, `exerciseCompletionOrder`, `nowTick` (1 s timer tick; re-renders the whole App every second during a workout, so keep per-render work cheap), `finishingWorkout` + `finishingWorkoutRef` (Complete guard).
+- Filters/forms: `historySearch/Month/Year`, `historyVisibleCount` (History paging; reset when a filter changes), `selectedProgressExercise`, `progressSearch`, split/day/exercise form state (`exerciseForm` includes `alternatives` + parallel `alternativeIds`), `summaryData`.
+- `makeCurrentDraft` is a `useCallback` declared just before the autosave effect (it must be defined before that effect's dependency list).
 
 ### Live queries (re-run on any DB change)
 - `splits`, `selectedSplit`, `workoutDays`, `selectedDay`, `exercises` (non-archived, by `order`).
-- `previousExerciseData` (~1027): for each exercise, walks the day's sessions newest-first until it finds sets → `{lastPerformedSession, lastPerformedSets, skippedLastWorkout}` plus `latestDaySession`. Tagged with `loadedFor: previousDataKey` (`"<dayId>:<exercise ids>"`); `previousExerciseDataReady` is true only when it matches the current day and exercise list.
+- `previousExerciseData`: for each exercise, its latest performance among the day's sessions (`findLatestPerformances`) → `{lastPerformedSession, lastPerformedSets, skippedLastWorkout}` plus `latestDaySession`. Tagged with `loadedFor: previousDataKey` (`"<dayId>:<exercise ids>"`); `previousExerciseDataReady` is true only when it matches the current day and exercise list.
 - `orderedExercises` (useMemo ~1148): sorts by the latest session's `exerciseOrderKeys`, falling back to `order`.
 - `historySessions` (~1356), `selectedHistorySession`, `allExerciseNames` (includes archived, exact-string dedupe), `progressData` (~1731), `monthlyBodyProgress` (~2041). The history/monthly queries do full table scans of sessions, sets, exercises and days.
 
@@ -121,25 +123,27 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 
 **Start (`startWorkout` ~3311).** Returns early unless `previousExerciseDataReady`; the Start button is disabled until then. If a paused draft exists, confirms discarding it. Builds `workoutSets` for every exercise via `createExerciseSets` (prefill weight/reps/RIR from `lastPerformedSets[index]`, uncompleted, at least `targetSets` rows). Each alternative group defaults to its most recently performed member, else `group[0]`. Writes the draft immediately, then sets `activeWorkout`.
 
-**Editing sets.** `updateSet` normalises input; `toggleSetComplete` requires weight and reps; `addSet` appends an empty row; `removeSet` confirms if the row has data. `updateExerciseCompletionStatus` appends an exercise's order key to `exerciseCompletionOrder` when all its sets are complete (removes it otherwise). This becomes the learned order.
+**Editing sets.** `updateSet` normalises input; `toggleSetComplete` requires a weight (0 = bodyweight) and reps > 0; `addSet` appends an empty row; `removeSet` confirms if the row has data. `updateExerciseCompletionStatus` appends an exercise's order key to `exerciseCompletionOrder` when all its sets are complete (removes it otherwise). This becomes the learned order.
 
-**Alternatives and optional.** `selectAlternativeDuringWorkout(group, id)` sets `selectedAlternatives[group]`; only the selected member is saved. Plain optional exercises show an Include card until `includeOptionalExercise(id)`; `skipOptionalExercise` hides them again. Optional alternative groups behave the same via `isOptionalGroupSkipped(group, selectedExercise)` and the `group:<name>` key. An undecided group that already has completed sets counts as included (protects drafts from older builds).
+**Alternatives and optional.** `selectAlternativeDuringWorkout(group, id)` sets `selectedAlternatives[group]`; only the selected member is saved (sets ticked on a non-selected member are dropped by design). `getSelectedAlternative` falls back to the group's first live member if the stored selection was removed. Plain optional exercises show an Include card until `includeOptionalExercise(id)`; `skipOptionalExercise` hides them again. Optional alternative groups behave the same via `isOptionalGroupSkipped(group, selectedExercise)` and the `group:<name>` key. An undecided group that already has completed sets counts as included (protects drafts from older builds).
 
 **Add/edit mid-workout.** `renderExerciseForm` is reused. `saveExercise` (~2661) writes the template (sets, warm-ups, reps, RIR, optional) to the edited exercise **and all its alternatives**. Alternatives are matched by `alternativeIds`: kept IDs are updated in place (renames keep history), removed ones are archived, new names are added after the group's highest `order`. Then `syncNewExercisesIntoWorkout(resizeExerciseId)` creates rows for brand-new exercises and resizes rows **only** for the edited exercise's group, and only if its working-set count changed. Shrinking pops trailing incomplete rows and stops at a completed one.
 
-**Pause/resume.** An autosave effect writes the draft 150 ms after any workout state change (and skips if a finish is in progress). There's no flush on `visibilitychange`. Back (`leaveActiveWorkout`) saves and goes Home; Home shows the Resume/Discard banner. A reload always lands on Home (no auto-resume). `resumeWorkout` restores all state from `pausedWorkout`; `discardPausedWorkout` confirms and deletes the draft.
+**Protecting the workout in progress.** `getWorkoutInProgress()` returns the running workout (from state) or the paused draft. Deleting a split or day it belongs to is blocked (`warnWorkoutInProgress`), and so is archiving any exercise/alternative with completed sets in it, whether via Remove on the day screen or by removing alternatives in Edit (`findExercisesWithLoggedSets` + `warnLoggedSets`). Archived exercises are hidden from the workout and skipped on finish, so this is what keeps logged sets from being lost.
+
+**Pause/resume.** An autosave effect writes the draft 150 ms after any workout state change, and immediately on `visibilitychange` (hidden) or `pagehide`, since iOS can suspend a backgrounded PWA at once. It skips while a finish is in progress. Back (`leaveActiveWorkout`) saves and goes Home; Home shows the Resume/Discard banner. A reload always lands on Home (no auto-resume). `resumeWorkout` restores all state from `pausedWorkout` and refuses a removed (missing or archived) day; `discardPausedWorkout` confirms, deletes the draft and calls `resetWorkoutState` (the single in-memory reset, also used by finish).
 
 **Finish (`finishWorkout` ~4104 → `saveFinishedWorkout` ~4337).**
-- Walks `orderedExercises` (not `activeExerciseIds`). Collects completed sets (`setNumber` 1..n); skipped = unincluded optionals/groups plus exercises with zero completed sets.
+- Walks `orderedExercises`. Collects completed sets (`setNumber` 1..n); skipped = unincluded optionals/groups plus exercises with zero completed sets.
 - Confirms, then sets `finishingWorkoutRef` (blocks re-entry and pending autosaves). The button shows "Saving…".
 - One Dexie transaction: `sessions.add` + `sets.bulkAdd` + delete the draft. On failure it alerts, writes nothing and keeps the workout open.
 - Then `buildWorkoutSummary` (failure → go to History instead), resets state and shows the summary. The ref is cleared by an effect once `activeWorkout` is false.
 
-**Summary.** Overall %, improved/same/regressed counts, duration, completed sets, volume, exercises/skipped, per-exercise statuses. "View in History"/"← History" go to History.
+**Summary.** Subtitle "<date> · Finished HH:MM", overall %, improved/same/regressed counts, duration, completed sets, volume, exercises/skipped, per-exercise statuses. "View in History"/"← History" go to History.
 
 ## 7. Progress, history and navigation details
 
-- **History list:** month/year filters and search, each session's overall progression (or "Baseline workout · N new baselines"). **History detail:** per-exercise status, sets and "Compared with last performed <date>". Skipped exercises are listed as "Skipped".
+- **History list:** month/year filters and search, each session's overall progression (or "Baseline workout · N new baselines"). Renders 40 workouts at a time with a "Show older workouts (N more)" button; the count resets when a filter changes and survives opening a History detail. **History detail:** per-exercise status, sets and "Compared with last performed <date>". Skipped exercises are listed as "Skipped".
 - **History → Progress → Back:** `openHistoryExerciseProgress` saves `{sessionId, scrollY}`; `closeHistoryExerciseProgress` reselects the session and restores scroll after two `requestAnimationFrame`s. It works, but headless browsers throttle rAF, so automated tests see the scroll restore late.
 - **Workout → Progress → "← Workout"** toggles `workoutProgressOpen`. The workout's scroll position is not restored.
 - **Progress landing:** exercise search, Month-to-Month Upper/Lower cards with bar charts (green/red), "Not enough monthly data yet" when there's nothing to compare.
@@ -153,6 +157,8 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 **Strength model.** `e1RM = weight × (1 + (reps + RIR) / 30)`, a practical heuristic. More RIR at the same weight and reps is an improvement. `70×8 @0 → 70×8 @1` is improved; `70×8 @0 → 70×9 @1` shows `↑ +1 rep · +1 RIR`.
 
 **Weight-up rule (all layers).** If weight went up and current reps are within 5–8, it's always `improved`. The reported % is the load increase %, which is proportional, so +2.5 kg on 12 kg means far more than on 100 kg. Weight up with reps below 5 falls back to e1RM. Weight down or reps-only changes use e1RM.
+
+**Bodyweight (0 kg).** e1RM is 0 for bodyweight, so 0 kg vs 0 kg is judged by reps + RIR (`effectiveReps`; % change of reps + RIR) in every layer, and live mixed results compare reps + RIR. Switching between 0 kg and loaded isn't comparable: History/summary/monthly treat it as a new baseline, and a mixed live result shows neutral `↔`. Any code that copies best-set fields must carry `effectiveReps`.
 
 **Statuses:** `improved` / `same` / `regressed` / `new` (first ever; "New baseline", never an improvement from zero) / `skipped` (excluded from totals). Not enough data shows baseline / "not enough data", never `0%`. The status threshold is ±0.05 %.
 
@@ -175,6 +181,8 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 - History and the summary compare per workout day (exercise id); Progress and Monthly merge same-named exercises across days. Both are intended.
 - Monthly uses the last workout of each month and compares only with the previous calendar month.
 - The live badge applies the weight-up rule exactly like History, whatever the reps/RIR direction.
+- 0 kg sets are judged by reps + RIR (above).
+- Warm-up sets stay a reminder label only: no warm-up rows during a workout, nothing saved (`setType` is always `"working"`).
 
 ## 9. UI conventions
 
@@ -203,6 +211,15 @@ There's no automated test suite. Verify changes in a real browser against the lo
 - Playwright writes screenshots and logs to `.playwright-mcp/` in the repo (git-ignored).
 - Recharts renders a hidden off-screen measuring `<span>` (often containing "0"). It is not a stray render.
 - Local test sessions and config edits stay in the local DB; that's fine, and the production DB is unaffected.
+- Wait for set rows before reading a card (`card.locator('input').first().waitFor()`); reading immediately after Start can see an empty card.
+
+**Performance testing.** Real data grows by roughly 200 workouts a year, so check heavy changes at scale:
+- Insert synthetic history straight into IndexedDB (e.g. 5 years: 1,040 sessions, ~22k sets) with a `synthetic: true` flag on every record, and delete those records afterwards.
+- Measure the **production** build (`npx vite preview --outDir <dir> --port <n>`). Dev-mode React (`jsxDEV`) roughly doubles render cost and is misleading.
+- A different port is a different origin, so it gets its own database. Before each run, unregister the service worker and clear `caches`, or you may be timing a stale bundle.
+- Throttle the CPU 4× through CDP (`Emulation.setCPUThrottlingRate`) to approximate a phone.
+- Wall-clock numbers include Playwright's own polling under throttling. Use the CDP profiler (`Profiler.start/stop`) to see real app time.
+- Baseline at 5 years of data, 4× throttle, production build: History opens in ~1.9 s, Progress ~1.6 s, opening a day until Start is ready ~4.5 s, finishing to summary ~7.9 s. Ticking a set is ~120 ms of real app work.
 
 ## 12. Change log (Oct 2026 work)
 
@@ -220,27 +237,24 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | 096a8e0 | Optional alternative groups need Include/Skip like optional exercises |
 | 6a5b562 | Editing alternatives matches by record id (removing/reordering no longer renames another record and moves its history) |
 | 62eecd5 | Complete Workout is one transaction, guarded against double taps and against autosave recreating the draft |
+| 2f0d882 | Full CLAUDE.md; `.playwright-mcp/` git-ignored |
+| 77d46f6 | Never archive what the workout in progress needs (split/day/exercise/alternative guards); `deleteDay` in a transaction; removed selected alternative falls back; no resuming an archived day |
+| 49ff381 | 0 kg sets judged by reps + RIR; `-` stripped from input; completing needs reps > 0; live diffs rounded |
+| f540eca | Draft saved immediately on background (`visibilitychange`/`pagehide`); `makeCurrentDraft` useCallback as the single builder; `resetWorkoutState`; dead `activeExerciseIds` removed |
+| b87aae3 | Sticky workout header clears the back button; summary subtitle shows finish time; "1 working set" |
+| 0d7b494 | Progress name matching ignores case and spaces (`normalizeExerciseName`) |
+| 29128b3 | Performance: cached date formatters, History paging (40), `findLatestPerformances` for prefill and summary |
 
-All of the above are deployed to GitHub Pages.
+Everything up to 62eecd5 is deployed to GitHub Pages. Check `git log origin/main..` to see what's newer than the deployed build.
 
-## 13. Known issues not yet fixed
+## 13. Known limitations and tech debt
 
-- **Archived mid-workout:** if an exercise or alternative is archived during a workout (e.g. removing a partner in Edit), its completed sets are silently not saved, because finish walks the live `orderedExercises`.
-- **Deleting a day:** `deleteDay` archives the day and its exercises without a transaction and doesn't check for a paused/active workout on that day. `resumeWorkout` resumes archived days (it only checks the day exists).
-- **Bad values:** negative or zero weight/reps can be completed and saved (`normalizeDecimalInput` keeps a leading `-`; completion only checks non-empty). Weight 0 (bodyweight) is always excluded from progression.
-- **Float display:** `compareSet` shows `+${weightDiff}kg` unrounded (can show `0.1999999`).
-- **Warm-ups:** `warmupSets` is stored and displayed but never creates rows; `setType` is always `"working"`.
-- **Draft flush:** no save on `visibilitychange`/`pagehide`, so the last ≤150 ms of edits can be lost if iOS kills the app instantly.
-- **UI nits:** the fixed back button overlaps the "ACTIVE WORKOUT" label when scrolled. The summary subtitle "· 04:21" is the duration but reads like a clock time. "1 working sets" grammar.
-- **Name matching:** the Progress tab is case-sensitive and exact; Monthly is lower-cased.
-- **Performance:** `historySessions` and `monthlyBodyProgress` scan whole tables on every DB change and may get slow with years of data.
-- **Duplication** (refactor only if asked, carefully):
-  - The draft object is built in three places (autosave effect, `startWorkout`, `makeCurrentDraft`).
-  - `buildWorkoutSummary` re-implements the `historySessions` comparison.
-  - The workout-state reset appears in `discardPausedWorkout` and `saveFinishedWorkout`.
-  - Group/optional/plain branching is repeated in start, finish, the active render and the preview render.
-  - The summary re-implements `getProgressStatus` inline.
-- `activeExerciseIds` is dead state.
+- **Scaling:** `historySessions` and `monthlyBodyProgress` still scan the whole sessions/sets tables whenever they change (i.e. after each finished workout). At 5 years of data this is the bulk of the ~7.9 s (4× throttled) finish-to-summary time; fine for now, the next thing to optimise if it grows.
+- **Progress chart:** plots e1RM, so a bodyweight-only exercise charts as 0 (the Strength change number uses reps + RIR correctly).
+- **Overall %:** session and monthly averages mix load-% (weight-up rule), e1RM-% and reps+RIR-% results.
+- **Header height:** the sticky active-workout header is ~40 px taller when stuck, to clear the fixed back button.
+- **Duplication** (refactor only if asked, carefully): `buildWorkoutSummary` re-implements the `historySessions` comparison; group/optional/plain branching is repeated in start, finish, the active render and the preview render.
+- **Lint:** since f540eca oxlint no longer reports the `react(purity)` warnings it used to flag in `App` (Date.now/Math.random inside handlers, false positives). The only remaining warning is `set-state-in-effect` on the draft-loading effect.
 
 ## 14. Working on this repo
 
@@ -254,7 +268,7 @@ Run through before significant commits:
 
 - **Home and program:** Home loads · banner only on Home · split/day/exercise CRUD (soft archive).
 - **Exercises in a workout:** optional include/skip · optional alternative group include/skip · alternative select (multiple) · edit alternatives (remove / rename / add) keeps the right history · add exercise mid-workout · edit exercise mid-workout (resizes only that exercise; completed sets kept; extra sets elsewhere kept).
-- **Starting and logging:** Start disabled until loaded · previous values prefill · half reps · `7,5` stays 7.5 · blank RIR = 0 · set complete/add/remove · live badge incl. combined rep/RIR text and the weight-up rule.
-- **Pause and finish:** active workout survives navigation and reload · Resume/Discard · Workout → Progress → back to the workout · Complete saves only checked sets, once, with sequential set numbers · skips stay skipped · summary.
-- **History and Progress:** History filters, progression and detail statuses · Progress from History opens the right exercise and Back restores scroll · exercise graph, Strength change and personal bests · Upper/Lower monthly graphs.
+- **Starting and logging:** Start disabled until loaded · previous values prefill · half reps · `7,5` stays 7.5 · `-` can't be typed · blank RIR = 0 · 0 reps can't be completed · set complete/add/remove · live badge incl. combined rep/RIR text, rounded diffs, the weight-up rule and 0 kg reps + RIR.
+- **Pause and finish:** active workout survives navigation and reload · draft saved immediately when the app is backgrounded · Resume/Discard · deleting the split/day/logged exercise of a paused workout is blocked · Workout → Progress → back to the workout · Complete saves only checked sets, once, with sequential set numbers · skips stay skipped · summary.
+- **History and Progress:** History filters, progression, paging and detail statuses · Progress from History opens the right exercise and Back restores scroll · exercise graph, Strength change and personal bests · Progress names match regardless of case · Upper/Lower monthly graphs.
 - **Display and platform:** positive green / negative red · headings visible in light and dark mode · backup export/restore · `npm run build` · Pages base paths.
