@@ -7,6 +7,9 @@ import {
 
 import "./index.css";
 
+// Registers the Android install listener before anything renders.
+import "./installPrompt.js";
+
 import App from "./App.jsx";
 
 import { DialogHost } from "./DialogHost.jsx";

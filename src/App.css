@@ -704,6 +704,106 @@ button svg {
   font-weight: 650;
 }
 
+/* Android install card (src/InstallBanner.jsx). Only appears in the
+   browser when Chrome reports the app can be installed. */
+.install-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+
+  margin-bottom: 22px;
+
+  padding: 14px 16px 12px;
+
+  border: 1px solid rgba(239, 130, 120, 0.28);
+  border-radius: var(--radius-card);
+
+  background:
+    linear-gradient(
+      180deg,
+      var(--accent-soft-2),
+      transparent 70%
+    ),
+    var(--surface);
+}
+
+.install-banner-icon {
+  flex-shrink: 0;
+
+  width: 44px;
+  height: 44px;
+
+  border-radius: var(--radius-control);
+}
+
+.install-banner-copy strong {
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.install-banner-copy p {
+  margin-top: 3px;
+
+  color: var(--muted);
+
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.install-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-top: 12px;
+}
+
+/* iPhone steps: numbered, with the Share and Add icons inline. */
+.install-steps {
+  display: grid;
+  gap: 6px;
+
+  margin: 8px 0 0;
+
+  padding-left: 18px;
+
+  color: var(--text-soft);
+
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.install-steps svg {
+  margin: 0 3px;
+
+  color: var(--accent-bright);
+
+  vertical-align: -3px;
+}
+
+.install-banner .install-banner-actions .text-button:only-child {
+  margin-left: -6px;
+}
+
+.install-banner-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 40px;
+
+  padding: 0 16px 0 14px;
+
+  border: none;
+  border-radius: var(--radius-pill);
+
+  background: var(--accent);
+  color: var(--accent-ink);
+
+  font-size: 14px;
+  font-weight: 750;
+}
+
 /* First-launch program chooser (src/ProgramChooser.jsx). */
 .program-chooser {
   padding-bottom: calc(40px + env(safe-area-inset-bottom));

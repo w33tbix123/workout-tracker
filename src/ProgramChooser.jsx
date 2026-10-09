@@ -16,6 +16,8 @@ import { importWorkoutBackup } from "./backup.js";
 
 import { notify } from "./confirm.js";
 
+import { InstallBanner } from "./InstallBanner.jsx";
+
 // First launch on a new phone: pick the program to start with, start
 // empty, or bring back a backup. Shown by main.jsx only while
 // needsProgramChoice() is true, so phones already set up never see it.
@@ -119,6 +121,8 @@ export function ProgramChooser({
           alt="WBX Workout Planner"
         />
       </div>
+
+      <InstallBanner />
 
       <header className="topbar">
         <div>

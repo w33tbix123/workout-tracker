@@ -50,6 +50,8 @@ import {
   notify,
 } from "./confirm.js";
 
+import { InstallBanner } from "./InstallBanner.jsx";
+
 import "./App.css";
 
 // ============================================================
@@ -9905,6 +9907,8 @@ function App() {
           alt="WBX Workout Planner"
         />
       </div>
+
+      <InstallBanner />
 
       {renderPausedWorkoutBanner()}
 
