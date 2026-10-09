@@ -29,6 +29,7 @@ import {
   GearSix,
   House,
   MagnifyingGlass,
+  NotePencil,
   PencilSimple,
   Play,
   Plus,
@@ -75,6 +76,21 @@ function normalizeDecimalInput(value) {
   }
 
   return normalized;
+}
+
+// Per-set notes ("more weight, poor form") are free text, saved trimmed
+// on the set record and only when there is something to save.
+const SET_NOTE_MAX_LENGTH = 200;
+
+function getSetNote(value) {
+  return String(
+    value ?? ""
+  )
+    .trim()
+    .slice(
+      0,
+      SET_NOTE_MAX_LENGTH
+    );
 }
 
 function parseDecimal(value) {
@@ -4399,10 +4415,13 @@ function App() {
     field,
     value
   ) {
+    // The note is free text; kg, reps and RIR are decimals.
     const safeValue =
-      normalizeDecimalInput(
-        value
-      );
+      field === "note"
+        ? value
+        : normalizeDecimalInput(
+            value
+          );
 
     setWorkoutSets(
       (previous) => ({
@@ -4560,6 +4579,9 @@ function App() {
       set.weight !== "" ||
       set.reps !== "" ||
       set.rir !== "" ||
+      !!getSetNote(
+        set.note
+      ) ||
       set.completed;
 
     if (
@@ -4939,6 +4961,16 @@ function App() {
                     getRIRValue(
                       set.rir
                     ),
+
+                  ...(getSetNote(
+                    set.note
+                  )
+                    ? {
+                        note: getSetNote(
+                          set.note
+                        ),
+                      }
+                    : {}),
                 }
               );
             }
@@ -5006,6 +5038,16 @@ function App() {
                   getRIRValue(
                     set.rir
                   ),
+
+                ...(getSetNote(
+                  set.note
+                )
+                  ? {
+                      note: getSetNote(
+                        set.note
+                      ),
+                    }
+                  : {}),
               }
             );
           }
@@ -5639,6 +5681,10 @@ function App() {
                   set.rir
                 )
               ),
+
+              note:
+                set.note ||
+                "",
             })
           );
       }
@@ -5729,9 +5775,11 @@ function App() {
                   ...row,
 
                   [field]:
-                    normalizeDecimalInput(
-                      value
-                    ),
+                    field === "note"
+                      ? value
+                      : normalizeDecimalInput(
+                          value
+                        ),
                 }
               : row
         )
@@ -5768,6 +5816,9 @@ function App() {
             rir:
               lastRow?.rir ??
               "",
+
+            // The note belongs to the set it was written for.
+            note: "",
           },
         ];
       }
@@ -5925,6 +5976,9 @@ function App() {
           reps,
           rir: getRIRValue(
             row.rir
+          ),
+          note: getSetNote(
+            row.note
           ),
         };
 
@@ -7997,25 +8051,33 @@ function App() {
                       {sets.map(
                         (set) => (
                           <div
-                            className="history-set-row"
+                            className="history-set-item"
                             key={set.id}
                           >
-                            <span>
-                              Set {set.setNumber}
-                            </span>
+                            <div className="history-set-row">
+                              <span>
+                                Set {set.setNumber}
+                              </span>
 
-                            <strong>
-                              {set.weight} kg
-                              {" × "}
-                              {set.reps}
-                            </strong>
+                              <strong>
+                                {set.weight} kg
+                                {" × "}
+                                {set.reps}
+                              </strong>
 
-                            <span>
-                              {getRIRValue(
-                                set.rir
-                              )}{" "}
-                              RIR
-                            </span>
+                              <span>
+                                {getRIRValue(
+                                  set.rir
+                                )}{" "}
+                                RIR
+                              </span>
+                            </div>
+
+                            <SetNote
+                              note={
+                                set.note
+                              }
+                            />
                           </div>
                         )
                       )}
@@ -9464,34 +9526,42 @@ function App() {
                                 set
                               ) => (
                                 <div
-                                  className="progress-set-row"
+                                  className="progress-set-item"
                                   key={
                                     set.id
                                   }
                                 >
-                                  <span>
-                                    Set{" "}
-                                    {
-                                      set.setNumber
-                                    }
-                                  </span>
+                                  <div className="progress-set-row">
+                                    <span>
+                                      Set{" "}
+                                      {
+                                        set.setNumber
+                                      }
+                                    </span>
 
-                                  <strong>
-                                    {
-                                      set.weight
-                                    }
-                                    {" "}kg ×{" "}
-                                    {
-                                      set.reps
-                                    }
-                                  </strong>
+                                    <strong>
+                                      {
+                                        set.weight
+                                      }
+                                      {" "}kg ×{" "}
+                                      {
+                                        set.reps
+                                      }
+                                    </strong>
 
-                                  <span>
-                                    {getRIRValue(
-                                      set.rir
-                                    )}{" "}
-                                    RIR
-                                  </span>
+                                    <span>
+                                      {getRIRValue(
+                                        set.rir
+                                      )}{" "}
+                                      RIR
+                                    </span>
+                                  </div>
+
+                                  <SetNote
+                                    note={
+                                      set.note
+                                    }
+                                  />
                                 </div>
                               )
                             )}
@@ -9804,6 +9874,33 @@ function ProgressCounts({ summary }) {
   );
 }
 
+// A saved set's note, under that set in "Last time" and History.
+function SetNote({
+  note,
+}) {
+  const text =
+    getSetNote(
+      note
+    );
+
+  if (!text) {
+    return null;
+  }
+
+  return (
+    <p className="set-note">
+      <NotePencil
+        size={13}
+        aria-hidden
+      />
+
+      <span>
+        {text}
+      </span>
+    </p>
+  );
+}
+
 // ============================================================
 // ACTIVE EXERCISE CARD
 // ============================================================
@@ -9940,34 +10037,42 @@ function ExerciseWorkoutCard({
             {previousSets.map(
               (set) => (
                 <div
-                  className="previous-row"
+                  className="previous-set-item"
                   key={
                     set.id
                   }
                 >
-                  <span>
-                    Set{" "}
-                    {
-                      set.setNumber
-                    }
-                  </span>
+                  <div className="previous-row">
+                    <span>
+                      Set{" "}
+                      {
+                        set.setNumber
+                      }
+                    </span>
 
-                  <strong>
-                    {
-                      set.weight
-                    }{" "}
-                    kg ×{" "}
-                    {
-                      set.reps
-                    }
-                  </strong>
+                    <strong>
+                      {
+                        set.weight
+                      }{" "}
+                      kg ×{" "}
+                      {
+                        set.reps
+                      }
+                    </strong>
 
-                  <span>
-                    {getRIRValue(
-                      set.rir
-                    )}{" "}
-                    RIR
-                  </span>
+                    <span>
+                      {getRIRValue(
+                        set.rir
+                      )}{" "}
+                      RIR
+                    </span>
+                  </div>
+
+                  <SetNote
+                    note={
+                      set.note
+                    }
+                  />
                 </div>
               )
             )}
@@ -10014,6 +10119,13 @@ function WorkoutSetRows({
   addSet,
   removeSet,
 }) {
+  // The set whose empty note field was just opened; a note with text
+  // is always shown.
+  const [
+    openNoteIndex,
+    setOpenNoteIndex,
+  ] = useState(null);
+
   return (
     <>
       <div
@@ -10050,6 +10162,15 @@ function WorkoutSetRows({
                 index
               ]
             );
+
+          const noteText =
+            getSetNote(
+              set.note
+            );
+
+          const editingNote =
+            openNoteIndex ===
+            index;
 
           return (
             <div
@@ -10183,26 +10304,121 @@ function WorkoutSetRows({
                 </button>
               </div>
 
-              {/* Stays visible after the set is ticked so the result
-                  against last time is still readable. */}
-              {comparison && (
-                <div
-                  className={`comparison ${comparison.type}`}
-                >
-                  {comparison.type !==
-                    "mixed" && (
-                    <ProgressDirectionIcon
-                      status={
-                        comparison.type
-                      }
-                      size={11}
-                    />
-                  )}
+              <div className="set-meta">
+                {/* Stays visible after the set is ticked so the result
+                    against last time is still readable. */}
+                {comparison ? (
+                  <div
+                    className={`comparison ${comparison.type}`}
+                  >
+                    {comparison.type !==
+                      "mixed" && (
+                      <ProgressDirectionIcon
+                        status={
+                          comparison.type
+                        }
+                        size={11}
+                      />
+                    )}
 
-                  {
-                    comparison.text
+                    {
+                      comparison.text
+                    }
+                  </div>
+                ) : (
+                  <span />
+                )}
+
+                {!noteText &&
+                  !editingNote && (
+                  <button
+                    className="set-note-button"
+                    aria-label={`Add a note to set ${index + 1}`}
+                    onClick={() =>
+                      setOpenNoteIndex(
+                        index
+                      )
+                    }
+                  >
+                    <NotePencil
+                      size={14}
+                      aria-hidden
+                    />
+                    Note
+                  </button>
+                )}
+              </div>
+
+              {/* The note stays editable after the set is ticked: it's
+                  usually written once the set is done. A saved note shows
+                  in full and opens for editing on tap. */}
+              {editingNote ? (
+                <input
+                  className="set-note-input"
+                  type="text"
+                  autoComplete="off"
+                  enterKeyHint="done"
+                  maxLength={
+                    SET_NOTE_MAX_LENGTH
                   }
-                </div>
+                  aria-label={`Note for set ${index + 1}`}
+                  placeholder="e.g. more weight, form slipped"
+                  autoFocus
+                  value={
+                    set.note || ""
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    updateSet(
+                      exercise.id,
+                      index,
+                      "note",
+                      event.target
+                        .value
+                    )
+                  }
+                  onKeyDown={(
+                    event
+                  ) => {
+                    if (
+                      event.key ===
+                      "Enter"
+                    ) {
+                      event.currentTarget.blur();
+                    }
+                  }}
+                  onBlur={() =>
+                    setOpenNoteIndex(
+                      (current) =>
+                        current ===
+                        index
+                          ? null
+                          : current
+                    )
+                  }
+                />
+              ) : (
+                noteText && (
+                  <button
+                    className="set-note-display"
+                    aria-label={`Edit note for set ${index + 1}: ${noteText}`}
+                    onClick={() =>
+                      setOpenNoteIndex(
+                        index
+                      )
+                    }
+                  >
+                    <NotePencil
+                      size={13}
+                      aria-hidden
+                    />
+
+                    <span>
+                      {noteText}
+                    </span>
+                  </button>
+                )
               )}
             </div>
           );
@@ -10286,62 +10502,90 @@ function HistoryEditSetRows({
               row.id ??
               `new-${index}`
             }
-            className="set-row set-row-six set-row-edit"
+            className="set-edit-item"
           >
-            <span className="set-number">
-              {index + 1}
-            </span>
+            <div className="set-row set-row-six set-row-edit">
+              <span className="set-number">
+                {index + 1}
+              </span>
 
-            {fields.map(
-              ({
-                field,
-                label,
-              }) => (
-                <input
-                  key={field}
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
-                  aria-label={`${exercise.name} set ${index + 1} ${label}`}
-                  value={
-                    row[field]
-                  }
-                  placeholder={
-                    field === "rir"
-                      ? "0"
-                      : undefined
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    updateSet(
-                      exercise.id,
-                      index,
-                      field,
-                      event.target
-                        .value
-                    )
-                  }
+              {fields.map(
+                ({
+                  field,
+                  label,
+                }) => (
+                  <input
+                    key={field}
+                    type="text"
+                    inputMode="decimal"
+                    autoComplete="off"
+                    aria-label={`${exercise.name} set ${index + 1} ${label}`}
+                    value={
+                      row[field]
+                    }
+                    placeholder={
+                      field === "rir"
+                        ? "0"
+                        : undefined
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      updateSet(
+                        exercise.id,
+                        index,
+                        field,
+                        event.target
+                          .value
+                      )
+                    }
+                  />
+                )
+              )}
+
+              <button
+                className="remove-set-button"
+                aria-label={`Remove ${exercise.name} set ${index + 1}`}
+                onClick={() =>
+                  removeSet(
+                    exercise.id,
+                    index
+                  )
+                }
+              >
+                <X
+                  size={15}
+                  weight="bold"
+                  aria-hidden
                 />
-              )
-            )}
+              </button>
+            </div>
 
-            <button
-              className="remove-set-button"
-              aria-label={`Remove ${exercise.name} set ${index + 1}`}
-              onClick={() =>
-                removeSet(
+            <input
+              className="set-note-input"
+              type="text"
+              autoComplete="off"
+              enterKeyHint="done"
+              maxLength={
+                SET_NOTE_MAX_LENGTH
+              }
+              aria-label={`${exercise.name} set ${index + 1} note`}
+              placeholder="Note (optional)"
+              value={
+                row.note || ""
+              }
+              onChange={(
+                event
+              ) =>
+                updateSet(
                   exercise.id,
-                  index
+                  index,
+                  "note",
+                  event.target
+                    .value
                 )
               }
-            >
-              <X
-                size={15}
-                weight="bold"
-                aria-hidden
-              />
-            </button>
+            />
           </div>
         )
       )}

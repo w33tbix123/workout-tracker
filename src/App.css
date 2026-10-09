@@ -1048,6 +1048,32 @@ button svg {
   text-align: center;
 }
 
+/* A saved set's note, under its row in "Last time" and History. */
+.set-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+
+  margin-top: -4px;
+
+  padding: 0 12px 10px;
+
+  color: var(--text-soft);
+
+  font-size: 13px;
+  line-height: 1.4;
+
+  overflow-wrap: anywhere;
+}
+
+.set-note svg {
+  flex-shrink: 0;
+
+  margin-top: 2px;
+
+  color: var(--muted);
+}
+
 /* ============================================================
    SET TABLE
    ============================================================ */
@@ -1228,12 +1254,117 @@ button svg {
   color: var(--red);
 }
 
+/* Under each set row: the comparison with last time on the left, the
+   "Note" button on the right. */
+.set-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+
+  margin: -6px 0 4px 30px;
+}
+
+.set-note-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+
+  min-height: 32px;
+
+  padding: 0 8px;
+
+  border: none;
+  border-radius: var(--radius-pill);
+
+  background: none;
+  color: var(--muted);
+
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.set-note-button:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-soft);
+}
+
+/* 16px so iOS doesn't zoom on focus. */
+.set-note-input {
+  display: block;
+
+  width: calc(100% - 30px);
+  height: 40px;
+
+  margin: 0 0 10px 30px;
+
+  padding: 0 12px;
+
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+
+  background: var(--surface-sunken);
+  color: var(--text);
+
+  font-size: 16px;
+
+  outline: none;
+
+  transition:
+    background-color var(--dur) var(--ease-out),
+    border-color var(--dur) var(--ease-out);
+}
+
+/* A written note during the workout: shown in full, tap to edit. */
+.set-note-display {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+
+  width: calc(100% - 30px);
+  min-height: 40px;
+
+  margin: 0 0 10px 30px;
+
+  padding: 10px 12px;
+
+  border: none;
+  border-radius: var(--radius-control);
+
+  background: var(--surface-sunken);
+  color: var(--text-soft);
+
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+
+  overflow-wrap: anywhere;
+}
+
+.set-note-display svg {
+  flex-shrink: 0;
+
+  margin-top: 2px;
+
+  color: var(--muted);
+}
+
+.set-note-input::placeholder {
+  color: var(--muted-dark);
+}
+
+.set-note-input:focus {
+  border-color: rgba(239, 130, 120, 0.55);
+  background: var(--accent-soft-2);
+}
+
 .comparison {
   display: flex;
   align-items: center;
   gap: 4px;
 
-  margin: -2px 0 8px 30px;
+  margin: 0;
 
   color: var(--muted);
 
@@ -1866,7 +1997,7 @@ button svg {
   background: var(--surface-sunken);
 }
 
-.history-set-list > .history-set-row:first-child {
+.history-set-list > .history-set-item:first-child > .history-set-row {
   border-top: none;
 }
 
