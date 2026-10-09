@@ -267,9 +267,9 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | c1ab770 | Notes on individual sets (workout, "Last time", History, Progress sessions, History edit) |
 | 7141ee6 | Sharing with other people: first-launch program chooser + templates, one-tap share-sheet backup, last-backup date, Home backup reminder, persistent storage request |
 | 141879e | Install card on Home and the first-launch chooser: Android install button, iPhone Add to Home Screen steps |
-| (uncommitted) | Girlfriend's program as the "Lower/Upper 2x a week" template with starting weights; single rep targets show as one number; no RIR label when there is no target |
+| c54ed2c | Girlfriend's program as the "Lower/Upper 2x a week" template with starting weights; single rep targets show as one number; no RIR label when there is no target |
 
-Everything above is deployed to GitHub Pages (live bundle `index-BeIVlNyq.js` as of 141879e). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
+Everything above is deployed to GitHub Pages (live bundle `index-CW-kbWqI.js` as of c54ed2c). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
 ## 13. Known limitations and tech debt
 
