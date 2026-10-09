@@ -704,6 +704,88 @@ button svg {
   font-weight: 650;
 }
 
+/* First-launch program chooser (src/ProgramChooser.jsx). */
+.program-chooser {
+  padding-bottom: calc(40px + env(safe-area-inset-bottom));
+}
+
+.program-chooser-restore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 44px;
+
+  margin-top: 16px;
+
+  padding: 0 6px;
+
+  color: var(--muted);
+
+  font-size: 14px;
+  font-weight: 650;
+
+  cursor: pointer;
+}
+
+.program-chooser-restore:active {
+  color: var(--text);
+}
+
+/* Backup reminder on Home: neutral, so it never competes with the
+   paused-workout banner or the coral primary actions below it. */
+.backup-reminder {
+  margin-bottom: 22px;
+
+  padding: 14px 16px 12px;
+
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+
+  background: var(--surface);
+}
+
+.backup-reminder-copy strong {
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.backup-reminder-copy p {
+  margin-top: 3px;
+
+  color: var(--muted);
+
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.backup-reminder-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  margin-top: 12px;
+}
+
+.backup-reminder-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  min-height: 40px;
+
+  padding: 0 16px 0 14px;
+
+  border: none;
+  border-radius: var(--radius-pill);
+
+  background: var(--accent-soft);
+  color: var(--accent-bright);
+
+  font-size: 14px;
+  font-weight: 700;
+}
+
 /* Split and workout-day cards */
 
 .management-card {

@@ -215,6 +215,54 @@ function formatTime(dateString) {
   );
 }
 
+// Whole calendar days between a date and today (0 = today).
+function getDaysSince(dateString) {
+  const then =
+    new Date(dateString);
+
+  const now = new Date();
+
+  const startOfDay = (date) =>
+    new Date(
+      date.getFullYear(),
+      date.getMonth(),
+      date.getDate()
+    ).getTime();
+
+  return Math.max(
+    0,
+    Math.round(
+      (startOfDay(now) -
+        startOfDay(then)) /
+        86400000
+    )
+  );
+}
+
+// "today", "yesterday" or "12 days ago", for the last-backup line.
+function formatDaysAgo(dateString) {
+  const days =
+    getDaysSince(
+      dateString
+    );
+
+  if (days === 0) {
+    return "today";
+  }
+
+  if (days === 1) {
+    return "yesterday";
+  }
+
+  return `${days} days ago`;
+}
+
+// The Home reminder appears once a backup is this old (or missing) and
+// there is at least one workout to lose.
+const BACKUP_REMINDER_DAYS = 14;
+
+const BACKUP_SNOOZE_DAYS = 3;
+
 function formatDuration(seconds) {
   const totalSeconds =
     Math.max(
@@ -2197,6 +2245,41 @@ function App() {
       [
         selectedHistorySessionId,
       ]
+    );
+
+  // When this device last saved a backup, whether the Home reminder is
+  // snoozed, and whether there are any workouts worth backing up.
+  const backupStatus =
+    useLiveQuery(
+      async () => {
+        const [
+          lastBackup,
+          snooze,
+          sessionCount,
+        ] = await Promise.all([
+          db.appMeta.get(
+            "lastBackupAt"
+          ),
+          db.appMeta.get(
+            "backupReminderSnoozedUntil"
+          ),
+          db.sessions.count(),
+        ]);
+
+        return {
+          lastBackupAt:
+            lastBackup?.value ||
+            null,
+
+          snoozedUntil:
+            snooze?.value ||
+            null,
+
+          hasWorkouts:
+            sessionCount > 0,
+        };
+      },
+      []
     );
 
   const selectedHistorySummary =
@@ -6150,6 +6233,44 @@ function App() {
   // BACKUP
   // ============================================================
 
+  async function handleExportBackup() {
+    try {
+      const saved =
+        await exportWorkoutBackup();
+
+      if (saved) {
+        await notify({
+          title:
+            "Backup saved",
+          message:
+            "Keep it somewhere safe, like iCloud Drive or Google Drive. Restore it from Settings if you ever reinstall the app or change phones.",
+        });
+      }
+    } catch (error) {
+      console.error(error);
+
+      await notify({
+        title:
+          "Backup not saved",
+        message:
+          error.message,
+      });
+    }
+  }
+
+  async function snoozeBackupReminder() {
+    await db.appMeta.put({
+      key:
+        "backupReminderSnoozedUntil",
+
+      value: new Date(
+        Date.now() +
+          BACKUP_SNOOZE_DAYS *
+            86400000
+      ).toISOString(),
+    });
+  }
+
   async function handleImportBackup(
     event
   ) {
@@ -6340,6 +6461,88 @@ function App() {
             }
           >
             Discard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Gentle nudge on Home when this device's workouts haven't been backed
+  // up for a while. Hidden while a workout is paused (that banner comes
+  // first) and when there's nothing to lose yet.
+  function renderBackupReminder() {
+    if (
+      !backupStatus ||
+      !backupStatus.hasWorkouts ||
+      pausedWorkout ||
+      activeWorkout ||
+      activeTab !==
+        "home" ||
+      selectedSplitId ||
+      selectedDayId
+    ) {
+      return null;
+    }
+
+    if (
+      backupStatus.lastBackupAt &&
+      getDaysSince(
+        backupStatus.lastBackupAt
+      ) <
+        BACKUP_REMINDER_DAYS
+    ) {
+      return null;
+    }
+
+    if (
+      backupStatus.snoozedUntil &&
+      new Date(
+        backupStatus.snoozedUntil
+      ).getTime() >
+        Date.now()
+    ) {
+      return null;
+    }
+
+    return (
+      <div className="backup-reminder">
+        <div className="backup-reminder-copy">
+          <strong>
+            Back up your workouts
+          </strong>
+
+          <p>
+            {backupStatus.lastBackupAt
+              ? `Last backup ${formatDaysAgo(
+                  backupStatus.lastBackupAt
+                )}.`
+              : "Not backed up yet."}{" "}
+            Your history is only on this phone.
+          </p>
+        </div>
+
+        <div className="backup-reminder-actions">
+          <button
+            className="backup-reminder-button"
+            onClick={
+              handleExportBackup
+            }
+          >
+            <DownloadSimple
+              size={16}
+              weight="bold"
+              aria-hidden
+            />
+            Back up
+          </button>
+
+          <button
+            className="text-button"
+            onClick={
+              snoozeBackupReminder
+            }
+          >
+            Later
           </button>
         </div>
       </div>
@@ -9608,8 +9811,9 @@ function App() {
           </h2>
 
           <p className="section-note">
-            Your workouts are stored only on this device. Export a backup
-            before reinstalling the app or switching phones.
+            Your workouts are stored only on this phone. Back them up to
+            iCloud Drive or Google Drive so they're safe if you delete the
+            app or change phones.
           </p>
 
           <div className="settings-card">
@@ -9622,21 +9826,25 @@ function App() {
 
               <div>
                 <strong>
-                  Export backup
+                  Back up your workouts
                 </strong>
 
                 <p>
-                  Saves history and any paused workout to a file.
+                  {backupStatus?.lastBackupAt
+                    ? `Last backup ${formatDaysAgo(
+                        backupStatus.lastBackupAt
+                      )}`
+                    : "Not backed up yet"}
                 </p>
               </div>
 
               <button
                 className="settings-action-button"
                 onClick={
-                  exportWorkoutBackup
+                  handleExportBackup
                 }
               >
-                Export
+                Back up
               </button>
             </div>
 
@@ -9649,11 +9857,11 @@ function App() {
 
               <div>
                 <strong>
-                  Restore backup
+                  Restore from a backup
                 </strong>
 
                 <p>
-                  Replaces everything on this device with a backup file.
+                  Replaces everything on this phone with a saved backup.
                 </p>
               </div>
 
@@ -9699,6 +9907,8 @@ function App() {
       </div>
 
       {renderPausedWorkoutBanner()}
+
+      {renderBackupReminder()}
 
       <div className="manage-header">
         <h1 className="home-title">

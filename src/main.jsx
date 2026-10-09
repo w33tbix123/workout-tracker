@@ -11,7 +11,10 @@ import App from "./App.jsx";
 
 import { DialogHost } from "./DialogHost.jsx";
 
+import { ProgramChooser } from "./ProgramChooser.jsx";
+
 import {
+  needsProgramChoice,
   seedWorkoutData,
 } from "./seed.js";
 
@@ -31,34 +34,64 @@ registerSW({
   immediate: true,
 });
 
-async function startApp() {
-  await seedWorkoutData();
+// Workouts live only on this phone, so ask the browser not to clear the
+// app's storage when the phone runs low on space. Silent; a refusal
+// changes nothing.
+navigator.storage
+  ?.persist?.()
+  .catch(() => {});
 
+async function startApp() {
   const isLocalhost =
     window.location.hostname ===
       "localhost" ||
     window.location.hostname ===
       "127.0.0.1";
 
+  const root = createRoot(
+    document.getElementById(
+      "root"
+    )
+  );
+
+  function renderApp() {
+    root.render(
+      <StrictMode>
+        <App />
+
+        <DialogHost />
+      </StrictMode>
+    );
+  }
+
   if (isLocalhost) {
+    // Local development starts with the WBX program and the baseline
+    // history, so there's realistic data to test against.
+    await seedWorkoutData();
+
     await importCurrentStatsOnce();
 
     await clearTestHistoryOnce();
 
     await fixBaselineDatesOnce();
+  } else if (
+    await needsProgramChoice()
+  ) {
+    // A brand-new phone picks its program first.
+    root.render(
+      <StrictMode>
+        <ProgramChooser
+          onDone={renderApp}
+        />
+
+        <DialogHost />
+      </StrictMode>
+    );
+
+    return;
   }
 
-  createRoot(
-    document.getElementById(
-      "root"
-    )
-  ).render(
-    <StrictMode>
-      <App />
-
-      <DialogHost />
-    </StrictMode>
-  );
+  renderApp();
 }
 
 startApp();

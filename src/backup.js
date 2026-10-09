@@ -1,5 +1,12 @@
 import { db } from "./db";
 
+import { confirmAction } from "./confirm.js";
+
+// Saves a backup the way a non-technical person expects on a phone: the
+// share sheet ("Save to Files" / iCloud Drive on iPhone, Google Drive or
+// Files on Android). Falls back to a download where sharing files isn't
+// supported. Returns true once the backup was handed over, false if the
+// person cancelled; only a completed backup updates lastBackupAt.
 export async function exportWorkoutBackup() {
   const backup = {
     version: 2,
@@ -17,22 +24,107 @@ export async function exportWorkoutBackup() {
 
   const json = JSON.stringify(backup, null, 2);
 
-  const blob = new Blob([json], {
-    type: "application/json",
-  });
-
-  const url = URL.createObjectURL(blob);
-
-  const link = document.createElement("a");
-
   const date = new Date()
     .toISOString()
     .slice(0, 10);
 
+  const fileName =
+    `workout-backup-${date}.json`;
+
+  const file = new File(
+    [json],
+    fileName,
+    {
+      type: "application/json",
+    }
+  );
+
+  const canShareFile =
+    typeof navigator.share === "function" &&
+    typeof navigator.canShare === "function" &&
+    navigator.canShare({
+      files: [file],
+    });
+
+  if (canShareFile) {
+    const shared = await shareBackupFile(
+      file
+    );
+
+    if (!shared) {
+      return false;
+    }
+  } else {
+    downloadBackupFile(
+      file
+    );
+  }
+
+  await db.appMeta.put({
+    key: "lastBackupAt",
+    value: new Date().toISOString(),
+  });
+
+  return true;
+}
+
+async function shareBackupFile(file) {
+  try {
+    await navigator.share({
+      files: [file],
+      title: "Workout backup",
+    });
+
+    return true;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return false;
+    }
+
+    // Safari only opens the share sheet straight after a tap, and reading
+    // the database first can use that up. One more tap gives it a fresh
+    // one.
+    if (error?.name === "NotAllowedError") {
+      const confirmed = await confirmAction({
+        title: "Backup ready",
+        message:
+          "Tap Save backup, then choose where to keep it (for example iCloud Drive or Google Drive).",
+        confirmLabel: "Save backup",
+        tone: "primary",
+      });
+
+      if (!confirmed) {
+        return false;
+      }
+
+      try {
+        await navigator.share({
+          files: [file],
+          title: "Workout backup",
+        });
+
+        return true;
+      } catch (retryError) {
+        if (retryError?.name === "AbortError") {
+          return false;
+        }
+
+        throw retryError;
+      }
+    }
+
+    throw error;
+  }
+}
+
+function downloadBackupFile(file) {
+  const url = URL.createObjectURL(file);
+
+  const link = document.createElement("a");
+
   link.href = url;
 
-  link.download =
-    `workout-tracker-backup-${date}.json`;
+  link.download = file.name;
 
   document.body.appendChild(link);
 

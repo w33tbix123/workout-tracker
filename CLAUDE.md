@@ -10,6 +10,7 @@ The core loop: open today's workout → see last time prefilled → log sets wit
 
 - **Live production app.** `src/App.jsx` (~8.4k lines) and `src/App.css` (~4k lines) hold almost everything. **Do not rewrite or broadly refactor them.** Draft persistence, alternatives, optional exercises, learned order, scroll restore and the timer all interact. Make small, targeted edits and verify in the browser.
 - **Real data lives only on the phone.** The installed PWA's IndexedDB holds months/years of history; the repo holds none. `localhost` and GitHub Pages are different origins, so local testing never touches it (and vice versa) unless a backup is exported/imported.
+- **Other people use it too (since Oct 2026).** The user's girlfriend (iPhone) and a friend (Android) run it from the same Pages URL. Each installed app has its own IndexedDB on its own phone, so data is separate by design: no accounts, no server. Every deploy reaches their phones too, so backward-compatible migrations and old-draft compatibility matter even more; they can't recover data themselves beyond Settings → Restore.
 - **History is sacred.** Never hard-delete sessions or sets; the only exception is sets the user removes and confirms while editing a past workout (History edit). Splits, days and exercises are soft-archived (`archived: true`) so history survives program changes.
 - **Migrations must be backward compatible** with existing production IndexedDB. Extra object fields need no schema bump (Dexie stores arbitrary properties).
 - **Paused drafts from older builds must still resume.** `appMeta.activeWorkoutDraft` written by a previous version can be loaded by a new one; new draft fields must tolerate being absent.
@@ -35,11 +36,12 @@ npm run deploy    # predeploy builds, then gh-pages -d dist
 
 | File | Purpose |
 |---|---|
-| `src/main.jsx` | Registers the SW, runs `seedWorkoutData()`, and **on localhost only** runs the three dev helpers below, then renders `<App/>` |
+| `src/main.jsx` | Registers the SW and asks for persistent storage (`navigator.storage.persist()`). **On localhost** it seeds the WBX program (`seedWorkoutData`) and runs the three dev helpers below; **in production** a brand-new install (`needsProgramChoice()`) renders `<ProgramChooser>` first, otherwise `<App/>` (+ `<DialogHost/>`) |
 | `src/db.js` | Dexie `WorkoutTrackerDB`, schema versions 3–5 (current `version(5)`) |
-| `src/seed.js` | Seeds the 4-day Upper/Lower split once (`appMeta.initialSeedComplete`) |
+| `src/seed.js` | `PROGRAM_TEMPLATES` (currently "WBX Upper/Lower", the original 4-day split; the girlfriend's program is to be added as another entry), `applyProgramTemplate(id | null)` (one transaction, then `initialSeedComplete`), `needsProgramChoice()` (true only with no `initialSeedComplete` and no splits; marks existing installs done), `seedWorkoutData()` (localhost only) |
+| `src/ProgramChooser.jsx` | First-launch screen on a new phone: one card per template, "Start empty", and "Restore from a backup" |
 | `src/confirm.js`, `src/DialogHost.jsx` | In-app confirmation/notice sheet (see §9) |
-| `src/backup.js` | `exportWorkoutBackup` / `importWorkoutBackup` (backup `version: 2`, all 6 tables incl. `appMeta`, import clears + bulkAdds in one transaction) |
+| `src/backup.js` | `exportWorkoutBackup` / `importWorkoutBackup` (backup `version: 2`, all 6 tables incl. `appMeta`, import clears + bulkAdds in one transaction). Export uses the share sheet (`navigator.share` with a File: iCloud Drive / Google Drive) and retries once through a "Backup ready" confirm after `NotAllowedError` (Safari loses the tap during the DB reads); `AbortError` = cancelled, returns false; no share support → download. Success writes `appMeta.lastBackupAt` and returns true |
 | `src/importCurrentStats.js` | Dev helper: imports the user's baseline stats as sessions (`currentStatsBaselineV1`) |
 | `src/clearTestHistory.js` | Dev helper: deletes test sessions once (`testHistoryCleanupV1`) |
 | `src/fixBaselineDates.js` | Dev helper: corrects baseline session dates once (`baselineDateCorrectionV1`) |
@@ -71,7 +73,7 @@ Split → Workout Day → Exercise; Workout Day → Session → Set. Exercise re
 
 **Set record:** `sessionId, exerciseId, setNumber (1..n, sequential since 8fc2b7f), setType ("working"), weight, reps, rir` as numbers. Optional `note` (string, trimmed, max 200 chars via `getSetNote` / `SET_NOTE_MAX_LENGTH`): only written when non-empty at finish; History edit may write `""`. Readers treat a missing or empty note as none. Only completed sets are saved; weight may be 0 (bodyweight), reps are always > 0. Older data may have gaps in `setNumber`; readers sort by `setNumber` and use array position, so gaps are harmless.
 
-**`appMeta` keys:** `initialSeedComplete`, `activeWorkoutDraft`, plus the one-time helper keys above.
+**`appMeta` keys:** `initialSeedComplete`, `activeWorkoutDraft`, `lastBackupAt` (ISO, last completed backup), `backupReminderSnoozedUntil` (ISO, Home reminder "Later"), plus the one-time helper keys above.
 
 **`activeWorkoutDraft.value`:** `splitId, workoutDayId, splitName, workoutDayName, startedAt, workoutSets, selectedAlternatives, includedOptional, exerciseCompletionOrder`. Built only by `makeCurrentDraft`.
 - `workoutSets`: `{ [exerciseId]: [{ weight, reps, rir, completed, note? }] }`. `note` is optional (absent in drafts from older builds). Values are a mix of strings (typed) and numbers (prefilled).
@@ -150,6 +152,8 @@ During a workout `activeTab` stays `"home"` and the split/day stay selected. Any
 - **Workout → Progress → back ("Workout")** toggles `workoutProgressOpen`. The workout's scroll position is not restored.
 - **Progress landing:** exercise search, Month-to-Month Upper/Lower cards with bar charts (green/red), "Not enough monthly data yet" when there's nothing to compare. Below them, a **Month by month** table (`buildMonthlyRows`) lists every month newest first with Upper and Lower % side by side ("Baseline" when the previous calendar month has no data, "No workouts" for a gap), a 3 / 6 / 12 / All range switch (`monthRange` state, default 3) and a Combined row that compounds the comparable months in range ((1+a)(1+b)-1).
 - **Exercise progress screen:** Best weight, RIR-adjusted 1RM, Sessions, Strength change, Personal Bests (best weight / best reps / best e1RM with dates), e1RM line chart, per-session history.
+- **Backups:** Settings → "Back up your workouts" (`handleExportBackup`, shows "Last backup today / N days ago" via `formatDaysAgo`) and "Restore from a backup". The Home reminder (`renderBackupReminder`, `backupStatus` live query) shows on plain Home when there is at least one workout, no paused workout, and the last backup is `BACKUP_REMINDER_DAYS` (14) old or missing; "Later" snoozes it `BACKUP_SNOOZE_DAYS` (3).
+- **First launch:** see `src/ProgramChooser.jsx`. Testing it needs the production code path on a fresh origin: `npx vite preview --port 4180` and open `http://wbx.localhost:4180/workout-tracker/` (a `*.localhost` host isn't matched by the localhost check). Raw IndexedDB writes from a test aren't seen by live queries until a reload.
 - Screens don't otherwise reset scroll on navigation.
 
 ## 8. Progression rules (ask before changing)
@@ -260,6 +264,7 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | a55d6c1 | UI polish (Phosphor icons, no eyebrows, tokens, motion, App.css rewrite), coloured History, Month by month table, Discard from the workout screen, in-app confirmation sheet |
 | 43d4a35 | Edit the sets of a finished workout from History detail |
 | c1ab770 | Notes on individual sets (workout, "Last time", History, Progress sessions, History edit) |
+| (uncommitted) | Sharing with other people: first-launch program chooser + templates, one-tap share-sheet backup, last-backup date, Home backup reminder, persistent storage request |
 
 Everything above is deployed to GitHub Pages (live bundle `index-Bpe6w7y1.js` as of c1ab770). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
@@ -287,4 +292,5 @@ Run through before significant commits:
 - **Starting and logging:** Start disabled until loaded · previous values prefill · half reps · `7,5` stays 7.5 · `-` can't be typed · blank RIR = 0 · 0 reps can't be completed · set complete/add/remove · live badge incl. combined rep/RIR text, rounded diffs, the weight-up rule and 0 kg reps + RIR.
 - **Pause and finish:** active workout survives navigation and reload · draft saved immediately when the app is backgrounded · Resume/Discard · deleting the split/day/logged exercise of a paused workout is blocked · Workout → Progress → back to the workout · Complete saves only checked sets, once, with sequential set numbers · skips stay skipped · summary.
 - **History and Progress:** History filters, progression, paging and detail statuses · Progress from History opens the right exercise and Back restores scroll · exercise graph, Strength change and personal bests · Progress names match regardless of case · Upper/Lower monthly graphs · Set notes: add during a workout, survive pause/resume, saved only on that set, shown in History, the exercise Progress Sessions list and next time's "Last time", editable in History edit · History edit: change/remove/add sets, invalid rows blocked, removing every set marks Skipped, Back/Cancel ask before discarding, set ids kept and `setNumber` 1..n.
+- **Sharing and backups:** new origin shows the chooser; WBX template creates the 43 seeded exercises; Start empty; Restore from the chooser; existing installs never see it · backup via share sheet, cancel records nothing, NotAllowedError retry, download fallback · last-backup text · Home reminder after 14 days, Later snoozes, hidden with a paused workout or no workouts.
 - **Display and platform:** positive green / negative red · headings visible in light and dark mode · backup export/restore · `npm run build` · Pages base paths.
