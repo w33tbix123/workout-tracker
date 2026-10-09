@@ -4,6 +4,63 @@ import { db } from "./db";
 // PROGRAM TEMPLATES
 // ============================================================
 
+// One exercise in a template. startWeight / startReps prefill the first
+// workout only (createExerciseSets in App.jsx); after that the app uses
+// last time's sets like any other exercise. targetRIR "" shows no target.
+function templateExercise(
+  order,
+  name,
+  targetSets,
+  minReps,
+  maxReps,
+  startWeight,
+  startReps = minReps
+) {
+  return {
+    name,
+    order,
+    optional: false,
+    targetSets,
+    warmupSets: 0,
+    minReps,
+    maxReps,
+    targetRIR: "",
+    startWeight,
+    startReps,
+  };
+}
+
+// Lower/Upper split trained twice a week: day 2 of each repeats day 1.
+const LOWER_BODY_EXERCISES = [
+  templateExercise(1, "Hamstring Curl", 2, 10, 11, 41),
+  templateExercise(2, "Leg Extension", 3, 10, 10, 59),
+  templateExercise(3, "Leg Press", 2, 10, 10, 70),
+  templateExercise(4, "Seated Bulgarian Split Squat", 2, 8, 8, 45),
+  templateExercise(5, "Bulgarian Split Squat", 2, 7, 7, 20),
+  templateExercise(6, "Calf Raises", 2, 10, 10, 90),
+  templateExercise(7, "Crunch", 2, 10, 12, 68),
+  templateExercise(8, "Abductor", 2, 8, 10, 41),
+  templateExercise(9, "Adductor", 2, 11, 11, 23),
+  templateExercise(10, "Standing Abduction", 1, 12, 12, 35),
+  templateExercise(11, "Hip Thrust", 2, 9, 10, 45),
+  templateExercise(12, "RDL", 2, 8, 8, 45),
+  templateExercise(13, "Kickbacks (each leg)", 1, 9, 9, 9),
+];
+
+const UPPER_BODY_EXERCISES = [
+  templateExercise(1, "Bicep Curl", 2, 9, 9, 18),
+  templateExercise(2, "Lateral Raises", 2, 10, 10, 18),
+  templateExercise(3, "Shoulder Press", 2, 8, 8, 20),
+  templateExercise(4, "Overhead Extensions", 2, 8, 8, 9),
+  templateExercise(5, "Lat Pulldown", 2, 8, 9, 29),
+  templateExercise(6, "Cable Tricep Extension (each arm)", 2, 10, 10, 4.5),
+  templateExercise(7, "Close Grip Row", 2, 10, 10, 23),
+  templateExercise(8, "Wide Grip Row", 2, 8, 10, 20),
+  templateExercise(9, "Tricep Press", 2, 10, 11, 45),
+  templateExercise(10, "Preacher Curl", 2, 10, 10, 7.5),
+  templateExercise(11, "Hammer Curl", 2, 11, 11, 7.5),
+];
+
 // Programs a new person can start with on first launch (ProgramChooser).
 // Each one becomes a normal split; after that it is edited in the app
 // like any other, and the template is never read again.
@@ -477,6 +534,39 @@ export const PROGRAM_TEMPLATES = [
               targetRIR: "Failure"
             }
           ],
+        },
+      ],
+    },
+  },
+  {
+    id: "lower-upper-2x",
+    name: "Lower/Upper 2x a week",
+    description:
+      "4 days: Lower Body and Upper Body, each twice a week",
+    split: {
+      name: "4 Day Lower/Upper Split",
+      // Named "Lower Body" / "Upper Body" so the monthly Upper/Lower
+      // comparison picks them up (it matches "upper" / "lower").
+      days: [
+        {
+          name: "Lower Body Day 1",
+          dayOfWeek: "Monday",
+          exercises: LOWER_BODY_EXERCISES,
+        },
+        {
+          name: "Upper Body Day 1",
+          dayOfWeek: "Tuesday",
+          exercises: UPPER_BODY_EXERCISES,
+        },
+        {
+          name: "Lower Body Day 2",
+          dayOfWeek: "Thursday",
+          exercises: LOWER_BODY_EXERCISES,
+        },
+        {
+          name: "Upper Body Day 2",
+          dayOfWeek: "Friday",
+          exercises: UPPER_BODY_EXERCISES,
         },
       ],
     },

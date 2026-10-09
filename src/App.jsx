@@ -217,6 +217,24 @@ function formatTime(dateString) {
   );
 }
 
+// "6-8" for a range, "10" when both ends are the same.
+function formatRepRange(
+  minReps,
+  maxReps
+) {
+  if (
+    maxReps === undefined ||
+    maxReps === null ||
+    maxReps === "" ||
+    Number(maxReps) ===
+      Number(minReps)
+  ) {
+    return `${minReps}`;
+  }
+
+  return `${minReps}-${maxReps}`;
+}
+
 // Whole calendar days between a date and today (0 = today).
 function getDaysSince(dateString) {
   const then =
@@ -4153,6 +4171,26 @@ function App() {
           1
       );
 
+    // An exercise that has never been done starts from the weight and
+    // reps its program template gave it (startWeight / startReps), if
+    // any. Once it has been performed, last time's sets take over.
+    const startingSet =
+      previousSets.length ===
+        0 &&
+      exercise.startWeight !==
+        undefined
+        ? {
+            weight:
+              exercise.startWeight,
+
+            reps:
+              exercise.startReps ??
+              "",
+
+            rir: null,
+          }
+        : null;
+
     for (
       let index = 0;
       index < setCount;
@@ -4161,7 +4199,8 @@ function App() {
       const previousSet =
         previousSets[
           index
-        ];
+        ] ||
+        startingSet;
 
       result.push({
         weight:
@@ -8507,13 +8546,10 @@ function App() {
                           ? "set"
                           : "sets"}
                         {" of "}
-                        {
-                          exercise.minReps
-                        }
-                        -
-                        {
+                        {formatRepRange(
+                          exercise.minReps,
                           exercise.maxReps
-                        }{" "}
+                        )}{" "}
                         reps
                       </p>
 
@@ -8524,12 +8560,17 @@ function App() {
                           </span>
                         )}
 
-                        <span className="tag">
-                          RIR{" "}
-                          {
-                            exercise.targetRIR
-                          }
-                        </span>
+                        {String(
+                          exercise.targetRIR ??
+                            ""
+                        ).trim() && (
+                          <span className="tag">
+                            RIR{" "}
+                            {
+                              exercise.targetRIR
+                            }
+                          </span>
+                        )}
 
                         {Number(
                           exercise.warmupSets
@@ -10178,17 +10219,17 @@ function ExerciseWorkoutCard({
           </h3>
 
           <p className="exercise-target">
-            {
-              exercise.minReps
-            }
-            -
-            {
+            {formatRepRange(
+              exercise.minReps,
               exercise.maxReps
-            }{" "}
-            reps, RIR{" "}
-            {
-              exercise.targetRIR
-            }
+            )}{" "}
+            reps
+            {String(
+              exercise.targetRIR ??
+                ""
+            ).trim()
+              ? `, RIR ${exercise.targetRIR}`
+              : ""}
 
             {skippedLastWorkout && (
               <span className="skipped-note">

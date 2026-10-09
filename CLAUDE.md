@@ -38,7 +38,7 @@ npm run deploy    # predeploy builds, then gh-pages -d dist
 |---|---|
 | `src/main.jsx` | Registers the SW and asks for persistent storage (`navigator.storage.persist()`). **On localhost** it seeds the WBX program (`seedWorkoutData`) and runs the three dev helpers below; **in production** a brand-new install (`needsProgramChoice()`) renders `<ProgramChooser>` first, otherwise `<App/>` (+ `<DialogHost/>`) |
 | `src/db.js` | Dexie `WorkoutTrackerDB`, schema versions 3–5 (current `version(5)`) |
-| `src/seed.js` | `PROGRAM_TEMPLATES` (currently "WBX Upper/Lower", the original 4-day split; the girlfriend's program is to be added as another entry), `applyProgramTemplate(id | null)` (one transaction, then `initialSeedComplete`), `needsProgramChoice()` (true only with no `initialSeedComplete` and no splits; marks existing installs done), `seedWorkoutData()` (localhost only) |
+| `src/seed.js` | `PROGRAM_TEMPLATES`: "WBX Upper/Lower" (the original 4-day split; the user and the friend) and "Lower/Upper 2x a week" (the girlfriend: Lower Body Day 1/2 and Upper Body Day 1/2, day 2 repeating day 1, built with `templateExercise()`; days are named "Lower Body"/"Upper Body" so the monthly Upper/Lower comparison picks them up; no RIR target; rep targets exactly as she gave them), `applyProgramTemplate(id | null)` (one transaction, then `initialSeedComplete`), `needsProgramChoice()` (true only with no `initialSeedComplete` and no splits; marks existing installs done), `seedWorkoutData()` (localhost only) |
 | `src/ProgramChooser.jsx` | First-launch screen on a new phone: one card per template, "Start empty", and "Restore from a backup" |
 | `src/installPrompt.js`, `src/InstallBanner.jsx` | Android install card: `installPrompt.js` (imported first in main.jsx) catches `beforeinstallprompt`, cancels Chrome's mini-infobar and keeps the event; `useInstallPrompt()` exposes `canInstall` / `promptInstall()`. `InstallBanner` shows on Home and the chooser: the Android card while Chrome offers an install, or on iPhone/iPad browsers (`isIosBrowser`: iOS UA or touch "MacIntel", and not `navigator.standalone` / display-mode standalone) a 3-step "Share → Add to Home Screen → always open from the icon" hint, since the Home Screen app keeps its data apart from Safari. Never shown in the installed app. "Not now" / "Got it" hides it 7 days via `localStorage` (`wbxInstallBannerDismissedAt`) |
 | `src/confirm.js`, `src/DialogHost.jsx` | In-app confirmation/notice sheet (see §9) |
@@ -68,7 +68,7 @@ appMeta     key
 
 Split → Workout Day → Exercise; Workout Day → Session → Set. Exercise records belong to one day, so the "same" exercise on Upper A and Upper B is two records with the same name.
 
-**Exercise record:** `workoutDayId, name, order, alternativeGroup (string|null), targetSets, warmupSets, minReps, maxReps, targetRIR (free text, e.g. "Failure", "1-2"), optional, archived`. Alternatives are separate records sharing an `alternativeGroup` string (seeded ones like `"upper-a-biceps"`, new ones `alternative-<ts>-<rand>`), ordered `order`, `order+0.01`, …
+**Exercise record:** `workoutDayId, name, order, alternativeGroup (string|null), targetSets, warmupSets, minReps, maxReps, targetRIR (free text, e.g. "Failure", "1-2"), optional, archived`. Template exercises may also carry `startWeight` / `startReps`: `createExerciseSets` uses them to prefill an exercise that has never been performed (no previous sets); after that last time's sets take over. `minReps === maxReps` displays as a single number (`formatRepRange`), and an empty `targetRIR` shows no RIR label. Alternatives are separate records sharing an `alternativeGroup` string (seeded ones like `"upper-a-biceps"`, new ones `alternative-<ts>-<rand>`), ordered `order`, `order+0.01`, …
 
 **Session record:** `workoutDayId, date (= completedAt ISO), startedAt, completedAt, durationSeconds, skippedExerciseIds, completedSetCount, exerciseOrderKeys`. Imported baselines may carry `baselineImport`.
 
@@ -267,6 +267,7 @@ There's no automated test suite. Verify changes in a real browser against the lo
 | c1ab770 | Notes on individual sets (workout, "Last time", History, Progress sessions, History edit) |
 | 7141ee6 | Sharing with other people: first-launch program chooser + templates, one-tap share-sheet backup, last-backup date, Home backup reminder, persistent storage request |
 | 141879e | Install card on Home and the first-launch chooser: Android install button, iPhone Add to Home Screen steps |
+| (uncommitted) | Girlfriend's program as the "Lower/Upper 2x a week" template with starting weights; single rep targets show as one number; no RIR label when there is no target |
 
 Everything above is deployed to GitHub Pages (live bundle `index-BeIVlNyq.js` as of 141879e). Pushing doesn't deploy: compare `dist/assets/index-*.js` with the live page to know what's actually live.
 
